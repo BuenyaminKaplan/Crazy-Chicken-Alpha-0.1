@@ -1,0 +1,38 @@
+<!-- index.html -->
+<!doctype html> <!-- sagt dem browser: das ist HTML5 (quasi start signal) -->
+<html lang="de"> <!-- sprache ist deutsch, hilft z.B. screenreadern so halb -->
+<head> <!-- kopf bereich, da ist nix sichtbares drin (meistens) -->
+  <meta charset="utf-8" /> <!-- zeichenkodierung damit umlaute nicht kaputt gehen -->
+  <meta name="viewport" content="width=device-width,initial-scale=1" /> <!-- mobile skalierung / handy korrekt -->
+  <title>Küken Parkour Endless • Distance Score • Top 3 Highscores</title> <!-- titel im tab oben -->
+
+  <link rel="stylesheet" href="style.css" /> <!-- bindet die CSS datei ein, macht das design -->
+</head>
+
+<body> <!-- alles was man sieht kommt hier rein -->
+
+  <!-- overlay für pause / gameover (liegt über dem canvas drüber) -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true"> <!-- role/aria = barriere ding -->
+    <div class="menu"> <!-- box im overlay, quasi das menü fenster -->
+      <h2 id="menuTitle">PAUSE</h2> <!-- überschrift im menü, wird per JS geändert -->
+      <p id="menuText">
+        ←/→ laufen • ↑ springen • Space tippen = Fireball • Space halten (max 2s) = Screen-Clear • Enter = Pause
+      </p> <!-- info text, auch per JS updatebar -->
+
+      <div class="scores" id="scoreBox"></div> <!-- hier kommen score + top3 rein -->
+
+      <div class="opts"> <!-- container für buttons -->
+        <div id="btnResume" class="btn">Weiterspielen <span class="hintKey">(Enter)</span></div> <!-- resume -->
+        <div id="btnRestart" class="btn">Neu starten</div> <!-- restart -->
+        <div id="btnResetScores" class="btn">Highscores zurücksetzen</div> <!-- highscores löschen -->
+        <div id="btnQuit" class="btn">Beenden <span class="hintKey">(Tab schließen)</span></div> <!-- quit hint -->
+      </div>
+    </div>
+  </div>
+
+  <!-- das spiel feld -->
+  <canvas id="c" width="960" height="540"></canvas> <!-- canvas ist die “leinwand” fürs game -->
+
+  <script src="game.js"></script> <!-- lädt die ganze game logik (javascript) -->
+</body>
+</html>

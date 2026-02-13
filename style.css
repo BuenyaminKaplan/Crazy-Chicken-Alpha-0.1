@@ -1,0 +1,92 @@
+/* style.css */
+
+/* html/body auf volle höhe und ohne rand, sonst gibts so komische ränder */
+html, body { 
+  margin: 0;               /* kein außenabstand (browser default weg) */
+  padding: 0;              /* kein innenabstand */
+  background: #0b1020;     /* dunkler hintergrund hinter dem canvas */
+  height: 100%;            /* volle höhe damit overlay gut passt */
+}
+
+/* canvas block zentriert und pixelig rendern (retro look halt) */
+canvas { 
+  display: block;                  /* block damit margin auto funktioniert */
+  margin: 0 auto;                  /* zentriert horizontal (so ungefähr) */
+  background: #87c9ff;             /* fallback himmel farbe */
+  image-rendering: pixelated;      /* pixel style, kann je nach browser varieren */
+}
+
+/* overlay ist pause/gameover layer über allem */
+.overlay {
+  position: fixed;                 /* bleibt immer im bildschirm (nicht scrollen) */
+  inset: 0;                        /* top/right/bottom/left = 0, deckt alles ab */
+  display: none;                   /* standard ist aus, wird per JS auf flex gemacht */
+  align-items: center;             /* zentriert vertikal */
+  justify-content: center;         /* zentriert horizontal */
+  background: rgba(0,0,0,.55);     /* dunkle transparent layer */
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; /* fonts liste */
+  color: #fff;                     /* text weiß */
+}
+
+/* das menü fenster (die box) */
+.menu {
+  width: min(620px, calc(100vw - 24px)); /* max breite, aber responsiv */
+  background: rgba(15,18,30,.92);        /* dunkles panel */
+  border: 1px solid rgba(255,255,255,.12); /* leichte outline */
+  border-radius: 16px;                   /* runde ecken */
+  padding: 16px;                         /* innenabstand */
+  box-shadow: 0 18px 60px rgba(0,0,0,.45); /* schatten fürs floating look */
+}
+
+/* titel im menü */
+.menu h2 { 
+  margin: 0 0 10px 0;    /* unten platz */
+  font-size: 18px;       /* größe */
+}
+
+/* texte im menü */
+.menu p { 
+  margin: 6px 0;         /* bisschen luft */
+  opacity: .92;          /* leicht durchsichtig */
+  white-space: pre-line; /* \n wird zu zeilen umbruch gemacht */
+}
+
+/* optionen (buttons) als grid */
+.opts { 
+  margin-top: 12px;      /* platz oben */
+  display: grid;         /* grid layout */
+  gap: 8px;              /* abstand zwischen buttons */
+}
+
+/* button style */
+.btn {
+  padding: 10px 12px;                   /* innenraum */
+  border-radius: 12px;                  /* runde ecken */
+  background: rgba(255,255,255,.12);    /* leicht hell */
+  border: 1px solid rgba(255,255,255,.14); /* border */
+  cursor: pointer;                      /* hand cursor */
+  user-select: none;                    /* text kann man nicht markieren (fast) */
+}
+
+/* hover effekt */
+.btn:hover { 
+  background: rgba(255,255,255,.16);    /* bisschen heller bei hover */
+}
+
+/* kleine tasten hinweise */
+.hintKey { 
+  opacity: .75;         /* weniger wichtig */
+  font-size: 12px;      /* klein */
+}
+
+/* scores box */
+.scores {
+  margin-top: 10px;                       /* abstand oben */
+  padding: 10px 12px;                     /* innen */
+  border-radius: 12px;                    /* runde ecken */
+  background: rgba(255,255,255,.08);      /* noch dunkler */
+  border: 1px solid rgba(255,255,255,.12);/* rand */
+  font-size: 13px;                        /* text größe */
+  line-height: 1.35;                      /* zeilenhöhe */
+  white-space: pre-line;                  /* umbrüche erlauben */
+}
