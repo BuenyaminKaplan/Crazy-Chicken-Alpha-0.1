@@ -16,13 +16,14 @@
   const btnQuit   = document.getElementById("btnQuit"); // quit button (macht nur hint)
 
   // ---------------- Input ----------------
-  const keys = { left:false, right:false, up:false, fire:false, enter:false }; // taste states speichern
+  const keys = { left:false, right:false, up:false, down:false, fire:false, enter:false }; // taste states speichern
   let didUserGesture = false; // merken ob user mal was gedrückt hat (audio policy)
 
   addEventListener("keydown", (e) => { // wenn taste runter gedrückt wird
     if (e.key === "ArrowLeft") keys.left = true; // links aktiv
     if (e.key === "ArrowRight") keys.right = true; // rechts aktiv
     if (e.key === "ArrowUp") keys.up = true; // jump taste aktiv
+    if (e.key === "ArrowDown") keys.down = true; // stampfer taste aktiv
     if (e.key === " ") keys.fire = true; // space fürs schießen/aufladen
     if (e.key === "Enter") keys.enter = true; // enter = pause
 
@@ -39,6 +40,7 @@
     if (e.key === "ArrowLeft") keys.left = false; // links aus
     if (e.key === "ArrowRight") keys.right = false; // rechts aus
     if (e.key === "ArrowUp") keys.up = false; // up aus
+    if (e.key === "ArrowDown") keys.down = false; // down aus
     if (e.key === " ") keys.fire = false; // fire aus
     if (e.key === "Enter") keys.enter = false; // enter aus
   });
@@ -246,8 +248,10 @@
   // Fire / charge
   let charging = false; // ob gerade space gehalten wird
   let chargeT = 0; // charge zeit in sekunden
-  const CHARGE_MAX = 2.0; // max charge
+  const CHARGE_MAX = 1.15; // max charge, jetzt schneller voll
   let fireCooldown = 0; // cooldown zwischen schüssen
+  let stompCooldown = 0; // cooldown für stampfer
+  let stompLock = 0; // kurze standzeit nach stampfer
 
   const TAP_BASE_DAMAGE = 0.7; // basis dmg bei tap
   const MID_BASE_DAMAGE = 1.2; // basis dmg bei mid charge
@@ -255,6 +259,7 @@
 
   const fireballs = []; // array mit projektilen
   const particles = []; // array mit partikeln
+  const groundCracks = []; // risse nach stampfer
   let invuln = 0; // invulnerable timer (unverwundbar)
 
   // world/camera
@@ -283,9 +288,9 @@
     facing: 1, // blickrichtung 1 oder -1
     bob: 0, // wackel animation time
 
-    accel: 9800, // beschleunigung (sehr hoch, arcady)
-    maxVx: 5200, // max speed
-    jump: 1200, // jump impulse
+    accel: 3600, // beschleunigung, natürlicher kontrollierbar
+    maxVx: 920, // max speed
+    jump: 1080, // jump impulse
   };
 
   const BASE_ACCEL = player.accel; // backup accel
@@ -317,6 +322,39 @@
       });
     }
     particles.push({ kind:"ring", x, y, r: 10*strength, t:0, life: 0.11 }); // ring effekt
+  }
+
+  function spawnGroundCracks(cx, radius=520){ // sichtbare risse entlang des bodens
+    for (let i=0;i<16;i++){
+      const dir = i % 2 === 0 ? 1 : -1;
+      const len = 45 + Math.random()*125;
+      const dist = Math.random()*radius;
+      groundCracks.push({
+        x: cx + dir*dist,
+        y: groundY + 1,
+        len,
+        angle: (Math.random()*0.55 + 0.08) * dir,
+        t: 0,
+        life: 1.05 + Math.random()*0.35
+      });
+    }
+  }
+
+  function spawnShockwave(cx){ // stampfer optik
+    particles.push({ kind:"shockwave", x:cx, y:groundY-8, r:18, t:0, life:0.34 });
+    for (let i=0;i<26;i++){
+      const dir = Math.random()<0.5 ? -1 : 1;
+      particles.push({
+        kind:"dust",
+        x: cx + dir*Math.random()*70,
+        y: groundY - 4,
+        vx: dir*(260 + Math.random()*760),
+        vy: -120 - Math.random()*220,
+        r: 4 + Math.random()*7,
+        t: 0,
+        life: 0.28 + Math.random()*0.24
+      });
+    }
   }
 
   // ---------------- World Generation ----------------
@@ -400,7 +438,7 @@
       y: groundY - (type==="pig" ? 36 : 52), // start y bisschen über ground
       w, h, // size
       dir: (Math.random()<0.5 ? -1 : 1), // richtung
-      vx: (type==="pig") ? 150 : 120, // speed
+      vx: (type==="pig") ? 95 : 78, // speed, etwas langsamer
       alive: true, // lebt
       minX: x - 240, // patroll min
       maxX: x + 240, // patroll max
@@ -409,7 +447,7 @@
       knockVX: 0, // knockback x
       aggro: false, // chase on/off
       aggroRadius: 560, // abstand fürs aggro
-      chaseSpeed: (type==="pig") ? 440 : 380, // chase speed
+      chaseSpeed: (type==="pig") ? 305 : 265, // chase speed, weniger hektisch
     });
   }
 
@@ -683,6 +721,37 @@
     }
   }
 
+  function stompDestroyVisible(){ // stampfer: alles sichtbare bekommt massiven schaden
+    const vx = cam.x, vy = cam.y, vw = W, vh = H;
+
+    for (const e of enemies){
+      if (!e.alive) continue;
+      if (aabb(e.x,e.y,e.w,e.h, vx,vy,vw,vh)){
+        e.alive = false;
+        spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05);
+        enemyVoice(e.type);
+      }
+    }
+
+    damageBlocksInRect(vx, vy, vw, vh, 8);
+  }
+
+  function doStomp(){ // neue fähigkeit auf pfeil runter
+    if (!player.onGround || stompCooldown > 0 || stompLock > 0) return;
+    const {w,h} = playerDims();
+    const cx = player.x + w/2;
+    player.vx = 0;
+    player.vy = 0;
+    stompLock = 0.24;
+    stompCooldown = 1.35;
+    spawnShockwave(cx);
+    spawnGroundCracks(cx, W*0.62);
+    stompDestroyVisible();
+    boom(62, 0.18, 0.16);
+    noiseBurst(0.22, 0.12, 460);
+    addShake(1.9, 0.20);
+  }
+
   function destroyVisibleNow(){ // charged attack: zerstört alles im viewport
     const vx = cam.x, vy = cam.y, vw = W, vh = H; // viewport rect
 
@@ -827,7 +896,7 @@
     if (paused){ // wenn jetzt paused
       showMenu(
         "PAUSE",
-        "←/→ laufen • ↑ springen • Space tippen = Fireball • Space halten (max 2s) = Screen-Clear • Enter = Pause",
+        "←/→ laufen • ↑ springen • ↓ Stampfer • Space tippen = Fireball • Space halten = Screen-Clear • Enter = Pause",
         false
       ); // menu zeigen
     } else hideMenu(); // sonst menu weg
@@ -851,6 +920,7 @@
     decor.length = 0; // deko leer
     fireballs.length = 0; // fireballs leer
     particles.length = 0; // particles leer
+    groundCracks.length = 0; // risse leer
 
     nextGenX = 0; // generator reset
     nextId = 1; // id reset
@@ -886,6 +956,8 @@
     charging = false; // charging off
     chargeT = 0; // charge time reset
     fireCooldown = 0; // cooldown reset
+    stompCooldown = 0; // stampfer cooldown reset
+    stompLock = 0; // stampfer standzeit reset
 
     startX = player.x; // startX setzen
     maxX = player.x; // maxX setzen
@@ -1117,6 +1189,20 @@
     ctx.fillStyle = n > 0.55 ? "#315332" : "#3f833e"; // bodenkante
     ctx.fillRect(0 - 200, groundY - cam.y, W + 400, 10);
 
+    for (const c of groundCracks){ // stampfer-risse
+      const x = c.x - cam.x, y = c.y - cam.y;
+      if (x < -200 || x > W+200) continue;
+      const a = 1 - c.t/c.life;
+      ctx.strokeStyle = `rgba(42,28,22,${a*0.72})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(c.angle)*c.len, y + Math.sin(c.angle)*c.len);
+      ctx.lineTo(x + Math.cos(c.angle)*c.len + 16, y + Math.sin(c.angle)*c.len + 6);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
     for (const b of blocks){ // draw blocks
       const x = b.x - cam.x, y = b.y - cam.y; // screen pos
       if (x < -200 || x > W+200) continue; // skip offscreen
@@ -1207,11 +1293,22 @@
       } else if (p.kind === "smoke"){ // smoke
         ctx.fillStyle = `rgba(80,80,90,${a*0.50})`; // color
         ctx.beginPath(); ctx.arc(x, y, p.r*1.2, 0, Math.PI*2); ctx.fill(); // draw
+      } else if (p.kind === "dust"){ // stampfer-staub
+        ctx.fillStyle = `rgba(150,105,66,${a*0.55})`;
+        ctx.beginPath(); ctx.ellipse(x, y, p.r*1.5, p.r, 0, 0, Math.PI*2); ctx.fill();
       } else if (p.kind === "ring"){ // ring
         ctx.strokeStyle = `rgba(255,255,255,${a*0.80})`; // color
         ctx.lineWidth = 3; // width
         ctx.beginPath(); ctx.arc(x, y, p.r, 0, Math.PI*2); ctx.stroke(); // draw
         ctx.lineWidth = 1; // reset
+      } else if (p.kind === "shockwave"){ // breite bodenwelle
+        ctx.strokeStyle = `rgba(255,244,190,${a*0.75})`;
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.ellipse(x, y, p.r*2.4, p.r*0.34, 0, 0, Math.PI*2); ctx.stroke();
+        ctx.strokeStyle = `rgba(95,66,42,${a*0.45})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(x, y+5, p.r*2.8, p.r*0.22, 0, 0, Math.PI*2); ctx.stroke();
+        ctx.lineWidth = 1;
       }
     }
 
@@ -1227,12 +1324,31 @@
 
   function drawHUD(){ // zeichnet oben links text
     ctx.save(); // save ctx
-    ctx.globalAlpha = 0.90; // leicht transparent
-    ctx.fillStyle = "rgba(0,0,0,.60)"; // text color-ish
+    const n = nightAmount();
+    const hpRatio = clamp(hp / MAX_HP, 0, 1);
+    let hpColor = "#30c25f";
+    if (hpRatio <= 0.25) hpColor = "#e3322b";
+    else if (hpRatio <= 0.45) hpColor = "#f07822";
+    else if (hpRatio <= 0.70) hpColor = "#e9ca35";
+    const textColor = n > 0.48 ? "rgba(245,250,255,.94)" : "rgba(10,18,18,.72)";
+    const panelColor = n > 0.48 ? "rgba(8,13,28,.54)" : "rgba(255,255,255,.42)";
+    ctx.globalAlpha = 1; // hud klar sichtbar
+    ctx.fillStyle = panelColor;
+    ctx.fillRect(10, 8, 252, 50);
+    ctx.strokeStyle = n > 0.48 ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.13)";
+    ctx.strokeRect(10, 8, 252, 50);
+    ctx.fillStyle = "rgba(0,0,0,.26)";
+    ctx.fillRect(18, 30, 136, 14);
+    ctx.fillStyle = hpColor;
+    ctx.fillRect(18, 30, 136*hpRatio, 14);
+    ctx.strokeStyle = "rgba(255,255,255,.40)";
+    ctx.strokeRect(18, 30, 136, 14);
+    ctx.fillStyle = textColor; // text color-ish
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial"; // font
-    ctx.fillText(`Score ${Math.floor(score)}  •  HP ${hp}  •  L${lives}  •  Eier ${eggPower}`, 12, 18); // hud line
-    ctx.globalAlpha = 0.75; // alpha down
-    ctx.fillText(`Enter Pause`, 12, 34); // hint
+    ctx.fillText(`Score ${Math.floor(score)}  •  L${lives}  •  Eier ${eggPower}`, 18, 22); // hud line
+    ctx.fillText(`HP ${hp}/${MAX_HP}`, 162, 42); // hp text
+    ctx.globalAlpha = 0.82; // alpha down
+    ctx.fillText(`Enter Pause  •  ↓ Stampfer`, 18, 56); // hint
     ctx.restore(); // restore
   }
 
@@ -1249,6 +1365,7 @@
   let lastT = performance.now(); // last timestamp
   let prevEnter = false; // previous enter state
   let prevFire = false; // previous fire state
+  let prevDown = false; // previous down state
 
   function step(t){ // main frame function
     const dt = Math.min(0.02, (t - lastT)/1000); // delta time clamp
@@ -1265,6 +1382,8 @@
 
     invuln = Math.max(0, invuln - dt); // invuln down
     fireCooldown = Math.max(0, fireCooldown - dt); // cooldown down
+    stompCooldown = Math.max(0, stompCooldown - dt); // stampfer cooldown down
+    stompLock = Math.max(0, stompLock - dt); // stampfer standzeit down
     worldTime += dt; // tag-nacht zyklus läuft real über zeit weiter
     ambientT -= dt;
     if (ambientT <= 0){
@@ -1279,12 +1398,19 @@
       if (shakeT <= 0){ shakeT = 0; shakePow = 0; } // stop
     }
 
+    if (keys.down && !prevDown) doStomp(); // stampfer auf tastendruck
+    prevDown = keys.down;
+
     // movement input
-    if (keys.left)  { player.vx -= player.accel * dt; player.facing = -1; } // accelerate left
-    if (keys.right) { player.vx += player.accel * dt; player.facing =  1; } // accelerate right
+    if (stompLock <= 0){
+      if (keys.left)  { player.vx -= player.accel * dt; player.facing = -1; } // accelerate left
+      if (keys.right) { player.vx += player.accel * dt; player.facing =  1; } // accelerate right
+    } else {
+      player.vx = 0;
+    }
 
     // jump
-    if (keys.up && player.onGround){ // jump only if grounded
+    if (keys.up && player.onGround && stompLock <= 0){ // jump only if grounded
       player.vy = -player.jump; // impulse up
       player.onGround = false; // not grounded
       beep(520, 0.045, "sine", 0.06); // jump sound
@@ -1304,7 +1430,7 @@
 
     // physics
     player.vy += gravity * dt; // gravity apply
-    player.vx *= player.onGround ? 0.83 : 0.95; // friction ground/air (nicht 100% real)
+    player.vx *= player.onGround ? 0.86 : 0.965; // friction ground/air, etwas natürlicher
 
     player.vx = clamp(player.vx, -player.maxVx, player.maxVx); // clamp speed
     player.vy = clamp(player.vy, -1750, 2100); // clamp y speed
@@ -1337,8 +1463,20 @@
         p.r *= 1.016; // grow
       } else if (p.kind === "ring"){ // ring expand
         p.r *= 1.17; // grow quickly
+      } else if (p.kind === "shockwave"){ // wave expand
+        p.r += 2100*dt;
+      } else if (p.kind === "dust"){
+        p.vy += 820*dt;
+        p.x += p.vx*dt; p.y += p.vy*dt;
+        p.vx *= 0.88;
+        p.r *= 1.012;
       }
       if (p.t >= p.life) particles.splice(i,1); // remove if done
+    }
+
+    for (let i=groundCracks.length-1;i>=0;i--){ // risse altern
+      groundCracks[i].t += dt;
+      if (groundCracks[i].t >= groundCracks[i].life) groundCracks.splice(i,1);
     }
 
     const moving = Math.abs(player.vx) > 90 || !player.onGround; // moving check
