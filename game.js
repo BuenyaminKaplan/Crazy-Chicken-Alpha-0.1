@@ -223,10 +223,14 @@
   // ---------------- Game State ----------------
   let paused = false; // pause flag
   let gameOver = false; // gameover flag
+  let dying = false; // kurze sterbe-animation vor game over
+  let deathT = 0; // timer für sterbe-animation
+  let deathBeepT = 0; // süßes piepen während sterbe-animation
+  let pendingTop3 = null; // highscores für danach
 
   let lives = 3; // leben anzahl
-  let hp = 10; // health points
-  const MAX_HP = 10; // max hp
+  let hp = 5; // health points
+  const MAX_HP = 5; // max hp, halbierte lebensanzeige
 
   // Score via distance
   let startX = 0; // start position x
@@ -252,6 +256,8 @@
   let fireCooldown = 0; // cooldown zwischen schüssen
   let stompCooldown = 0; // cooldown für stampfer
   let stompLock = 0; // kurze standzeit nach stampfer
+  let stompPrimed = false; // stampfer wurde in der luft gestartet
+  let flameTimer = 0; // chili-flammenwerfer buff
 
   const TAP_BASE_DAMAGE = 0.7; // basis dmg bei tap
   const MID_BASE_DAMAGE = 1.2; // basis dmg bei mid charge
@@ -260,7 +266,9 @@
   const fireballs = []; // array mit projektilen
   const particles = []; // array mit partikeln
   const groundCracks = []; // risse nach stampfer
-  let invuln = 0; // invulnerable timer (unverwundbar)
+  let invuln = 0; // goldeneier-power: kontakt zerstört gegner/objekte
+  let hurtFlash = 0; // helles aufblinken nach treffer
+  let hurtGrace = 0; // kurzer trefferschutz ohne goldeneier-power
 
   // world/camera
   const cam = { x:0, y:0 }; // kamera position
@@ -269,13 +277,13 @@
   // world objects (endless generation)
   const blocks = []; // zerstörbare blöcke
   const enemies = []; // gegner array
-  const eggs = []; // eier array
+  const eggs = []; // collectibles: eier, goldene eier, chili
   const decor = []; // nicht-kollidierende details für mehr tiefe
 
   let nextGenX = 0; // bis wohin world generiert wurde
   let nextId = 1; // id counter für enemies
   let worldTime = 0; // zeit für tag-nacht zyklus
-  const DAY_LENGTH = 96; // sekunden für einen kompletten sonne/mond zyklus
+  const DAY_LENGTH = 210; // sekunden für einen längeren sonne/mond zyklus
   let ambientT = 2.5; // kleine farm-atmosphäre in abständen
 
   // ---------------- Player ----------------
@@ -288,9 +296,9 @@
     facing: 1, // blickrichtung 1 oder -1
     bob: 0, // wackel animation time
 
-    accel: 3600, // beschleunigung, natürlicher kontrollierbar
-    maxVx: 920, // max speed
-    jump: 1080, // jump impulse
+    accel: 7840, // 20% langsamer links/rechts
+    maxVx: 4160, // 20% langsamer links/rechts
+    jump: 1200, // jump impulse
   };
 
   const BASE_ACCEL = player.accel; // backup accel
@@ -476,9 +484,10 @@
     return { x, y: groundY - 92 };
   }
 
-  function spawnEgg(x, y){ // macht ein egg
+  function spawnEgg(x, y, kind="egg"){ // macht ein collectible
     const p = safeEggPosition(x, y);
-    eggs.push({ x:p.x, y:p.y, r: 12, got:false, bob:Math.random()*Math.PI*2 }); // r = radius
+    const r = kind === "chili" ? 15 : (kind === "goldEgg" ? 17 : 15);
+    eggs.push({ x:p.x, y:p.y, r, kind, got:false, bob:Math.random()*Math.PI*2 }); // r = radius
   }
 
   function generateTo(xMax){ // generiert world bis xMax
@@ -508,7 +517,9 @@
       for (let i=0;i<eggCount;i++){ // spawn eggs
         const ex = baseX + 260 + Math.random()*(segmentLen-420); // egg x random
         const ey = (Math.random() < 0.55) ? (groundY - 88) : (groundY - (6 + Math.floor(Math.random()*4))*TILE); // egg y random
-        spawnEgg(ex, ey); // add egg
+        const roll = Math.random();
+        const kind = roll < 0.12 ? "goldEgg" : (roll < 0.24 ? "chili" : "egg");
+        spawnEgg(ex, ey, kind); // add collectible
       }
 
       const eCount = 4 + Math.floor(Math.random()*6); // 4..9 enemies
@@ -542,9 +553,10 @@
 
   // ---------------- Damage / health ----------------
   function takeDamage(amount=1){ // spieler nimmt schaden
-    if (invuln > 0 || paused || gameOver) return; // wenn invuln oder pause -> nix
+    if (invuln > 0 || hurtGrace > 0 || paused || gameOver) return; // gold-buff/kurzer trefferschutz/pause -> nix
     hp -= amount; // hp runter
-    invuln = 0.85; // kurz unverwundbar
+    hurtFlash = 0.85; // helles aufblinken
+    hurtGrace = 0.65; // kurze schadenspause, aber ohne goldeneier kontakt-power
     spawnExplosion(player.x + playerDims().w/2, player.y + playerDims().h/2, 0.8); // fx
     addShake(0.8, 0.10); // shake
     beep(180, 0.06, "square", 0.10); // sound
@@ -562,7 +574,8 @@
         player.y = 380; // y reset
         player.vx = 0; // stop
         player.vy = 0; // stop
-        invuln = 0.9; // invuln wieder
+        hurtFlash = 0.9; // helles respawn blinken
+        hurtGrace = 0.75; // kurzer respawn-schutz
       }
     }
   }
@@ -574,6 +587,7 @@
 
     // Horizontal move
     player.x += player.vx * dt; // x bewegen
+    if (invuln > 0) explodeBlocksInRect(player.x-8, player.y-8, w+16, h+16);
     for (const p of blocks){ // check gegen blocks
       if (aabb(player.x, player.y, w, h, p.x, p.y, p.w, p.h)){ // overlap
         if (player.vx > 0) player.x = p.x - w; // rechts block -> zurück
@@ -584,12 +598,14 @@
 
     // Vertical move
     player.y += player.vy * dt; // y bewegen
+    if (invuln > 0) explodeBlocksInRect(player.x-8, player.y-8, w+16, h+16);
     for (const p of blocks){ // check blocks
       if (aabb(player.x, player.y, w, h, p.x, p.y, p.w, p.h)){ // overlap
         if (player.vy > 0){ // fällt nach unten
           player.y = p.y - h; // auf block drauf stellen
           player.vy = 0; // y speed null
           player.onGround = true; // jetzt am boden
+          if (stompPrimed) landStomp();
         } else if (player.vy < 0){ // springt nach oben
           player.y = p.y + p.h; // unter block setzen
           player.vy = 0; // stop y
@@ -602,6 +618,7 @@
       player.y = groundY - h; // auf boden setzen
       player.vy = 0; // stop
       player.onGround = true; // grounded
+      if (stompPrimed) landStomp();
     }
 
     if (player.y > 1200){ // wenn zu tief gefallen (aus der welt)
@@ -624,15 +641,25 @@
     for (const e of eggs){ // jedes ei
       if (e.got) continue; // wenn schon eingesammelt -> skip
       const dx = cx - e.x, dy = cy - e.y; // dist vector
-      if (dx*dx + dy*dy < (e.r + 18)*(e.r + 18)){ // radius check (kreis-ish)
+      if (dx*dx + dy*dy < (e.r + 24)*(e.r + 24)){ // größerer pickup radius
         e.got = true; // mark collected
-        spawnExplosion(e.x, e.y, 0.85); // fx
+        spawnExplosion(e.x, e.y, e.kind === "goldEgg" ? 1.15 : 0.85); // fx
         addShake(0.35, 0.07); // little shake
         cluck(); // bling sound
 
-        eggPower = clamp(eggPower + 1, 0, EGG_MAX); // eggPower plus 1
-        updateScaleFromEggs(); // update scale
-        healFromEgg(); // heal
+        if (e.kind === "goldEgg"){
+          invuln = Math.max(invuln, 5.0);
+          beep(880, 0.08, "triangle", 0.10);
+          addShake(0.55, 0.10);
+        } else if (e.kind === "chili"){
+          flameTimer = 5.0;
+          beep(320, 0.06, "sawtooth", 0.08);
+          setTimeout(() => beep(420, 0.06, "sawtooth", 0.07), 55);
+        } else {
+          eggPower = clamp(eggPower + 1, 0, EGG_MAX); // eggPower plus 1
+          updateScaleFromEggs(); // update scale
+          healFromEgg(); // heal
+        }
       }
     }
   }
@@ -689,9 +716,19 @@
       }
 
       // player collision
-      if (aabb(player.x, player.y, pw, ph, e.x, e.y, e.w, e.h)){ // overlap with player
+      const hx = e.x - 8, hy = e.y - 7, hw = e.w + 16, hh = e.h + 12; // etwas größere/verzeihendere hitbox
+      if (aabb(player.x, player.y, pw, ph, hx, hy, hw, hh)){ // overlap with player
         const playerBottom = player.y + ph; // bottom y
-        if (player.vy > 240 && (playerBottom - e.y) < 18){ // stomp cond (nicht super physikalisch)
+        const playerCenterX = player.x + pw/2;
+        const nearTop = playerBottom <= e.y + e.h*0.78;
+        const horizontallyClose = playerCenterX > e.x - 18 && playerCenterX < e.x + e.w + 18;
+        if (invuln > 0){ // golden egg: kontakt besiegt gegner
+          e.alive = false;
+          spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.20);
+          boom(95, 0.10, 0.10);
+          enemyVoice(e.type);
+          addShake(0.28, 0.06);
+        } else if (player.vy > 160 && nearTop && horizontallyClose){ // verzeihender stomp
           e.alive = false; // kill enemy
           spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.15); // fx
           boom(95, 0.10, 0.11); // sound
@@ -700,8 +737,10 @@
           addShake(0.45, 0.08); // shake
         } else { // sonst player hit
           takeDamage(1); // damage
-          player.vx = -player.facing * 1650; // push back
-          player.vy = -700; // pop up
+          if (!dying){
+            player.vx = -player.facing * 420; // sehr leichter push back
+            player.vy = -240; // kleiner pop up
+          }
         }
       }
     }
@@ -721,8 +760,68 @@
     }
   }
 
+  function explodeBlocksInRect(rx, ry, rw, rh){ // unverwundbar: kontakt zerstört objekte sofort
+    for (let i=blocks.length-1;i>=0;i--){
+      const b = blocks[i];
+      if (!aabb(b.x,b.y,b.w,b.h, rx,ry,rw,rh)) continue;
+      spawnExplosion(b.x+b.w/2, b.y+b.h/2, 0.75);
+      blockBreakSound(b.kind);
+      blocks.splice(i,1);
+    }
+  }
+
+  function updateInvulnContact(){ // golden egg kontakt-power
+    if (invuln <= 0) return;
+    const {w,h} = playerDims();
+    explodeBlocksInRect(player.x-7, player.y-7, w+14, h+14);
+  }
+
+  function updateFlamethrower(dt){ // chili: kurzer flammenwerfer
+    if (flameTimer <= 0) return;
+    const {w,h} = playerDims();
+    const fx = player.x + w/2 + player.facing*26;
+    const fy = player.y + h*0.46;
+    const coneX = player.facing > 0 ? fx : fx - 280;
+    const coneY = fy - 58;
+    const coneW = 280;
+    const coneH = 116;
+
+    if (Math.random() < 1.0){
+      particles.push({
+        kind:"flame",
+        x: fx + player.facing*(24 + Math.random()*145),
+        y: fy + (Math.random()*2-1)*38,
+        vx: player.facing*(620 + Math.random()*620),
+        vy: (Math.random()*2-1)*150,
+        r: 11 + Math.random()*17,
+        t: 0,
+        life: 0.16 + Math.random()*0.16
+      });
+    }
+
+    for (const e of enemies){
+      if (!e.alive) continue;
+      if (!aabb(e.x,e.y,e.w,e.h, coneX,coneY,coneW,coneH)) continue;
+      e.hp -= (15.5 * damageMult()) * dt;
+      e.hitT = 0.08;
+      e.knockVX += player.facing * 125;
+      e.x += player.facing * 170 * dt;
+      if (e.hp <= 0){
+        e.alive = false;
+        spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05);
+        boom(90, 0.10, 0.10);
+        enemyVoice(e.type);
+      }
+    }
+
+    damageBlocksInRect(coneX, coneY, coneW, coneH, 5.5 * dt);
+  }
+
   function stompDestroyVisible(){ // stampfer: alles sichtbare bekommt massiven schaden
-    const vx = cam.x, vy = cam.y, vw = W, vh = H;
+    const {w} = playerDims();
+    const cx = player.x + w/2;
+    const radius = W * 0.31;
+    const vx = cx - radius, vy = cam.y, vw = radius * 2, vh = H;
 
     for (const e of enemies){
       if (!e.alive) continue;
@@ -736,20 +835,29 @@
     damageBlocksInRect(vx, vy, vw, vh, 8);
   }
 
-  function doStomp(){ // neue fähigkeit auf pfeil runter
-    if (!player.onGround || stompCooldown > 0 || stompLock > 0) return;
+  function landStomp(){ // impact wenn der luft-stampfer landet
     const {w,h} = playerDims();
     const cx = player.x + w/2;
     player.vx = 0;
     player.vy = 0;
     stompLock = 0.24;
     stompCooldown = 1.35;
+    stompPrimed = false;
     spawnShockwave(cx);
-    spawnGroundCracks(cx, W*0.62);
+    spawnGroundCracks(cx, W*0.31);
     stompDestroyVisible();
     boom(62, 0.18, 0.16);
     noiseBurst(0.22, 0.12, 460);
     addShake(1.9, 0.20);
+  }
+
+  function doStomp(){ // neue fähigkeit auf pfeil runter, nur in der luft
+    if (player.onGround || stompCooldown > 0 || stompLock > 0 || stompPrimed) return;
+    stompPrimed = true;
+    player.vx *= 0.35;
+    player.vy = 2100;
+    stompLock = 0.10;
+    beep(120, 0.06, "sawtooth", 0.07);
   }
 
   function destroyVisibleNow(){ // charged attack: zerstört alles im viewport
@@ -891,12 +999,13 @@
   function hideMenu(){ overlay.style.display = "none"; } // overlay aus
 
   function togglePause(){ // toggelt pause an/aus
+    if (dying) return;
     if (gameOver){ restartRun(); return; } // bei gameover = restart (ist bissl shortcut)
     paused = !paused; // flip
     if (paused){ // wenn jetzt paused
       showMenu(
         "PAUSE",
-        "←/→ laufen • ↑ springen • ↓ Stampfer • Space tippen = Fireball • Space halten = Screen-Clear • Enter = Pause",
+        "←/→ laufen • ↑ springen • ↓ im Sprung = Stampfer • Space tippen = Fireball • Space halten = Screen-Clear • Enter = Pause",
         false
       ); // menu zeigen
     } else hideMenu(); // sonst menu weg
@@ -935,6 +1044,10 @@
   function restartRun(){ // startet spiel neu
     paused = false; // pause aus
     gameOver = false; // gameOver aus
+    dying = false; // sterbe-animation aus
+    deathT = 0; // death timer reset
+    deathBeepT = 0; // piep timer reset
+    pendingTop3 = null; // pending scores reset
     hideMenu(); // overlay weg
 
     lives = 3; // leben reset
@@ -953,11 +1066,15 @@
     player.maxVx = BASE_MAXVX; // max speed reset
 
     invuln = 0; // invuln reset
+    hurtFlash = 0; // trefferblinken reset
+    hurtGrace = 0; // trefferschutz reset
     charging = false; // charging off
     chargeT = 0; // charge time reset
     fireCooldown = 0; // cooldown reset
     stompCooldown = 0; // stampfer cooldown reset
     stompLock = 0; // stampfer standzeit reset
+    stompPrimed = false; // stampfer luftzustand reset
+    flameTimer = 0; // chili reset
 
     startX = player.x; // startX setzen
     maxX = player.x; // maxX setzen
@@ -972,8 +1089,21 @@
 
   function endRun(){ // game over
     gameOver = true; // set gameover
+    dying = true; // erst sterbe-animation
+    paused = false; // weiter rendern
+    deathT = 2.0; // 2 sekunden weinen
+    deathBeepT = 0;
+    player.vx = 0;
+    player.vy = 0;
+    player.facing = 1;
+    pendingTop3 = maybeAddHighscore(score); // score speichern
+    hideMenu();
+  }
+
+  function finishGameOver(){ // menu nach sterbe-animation
+    dying = false;
     paused = true; // pause an
-    const top3 = maybeAddHighscore(score); // score speichern
+    const top3 = pendingTop3 || loadHighscores();
     showMenu("GAME OVER", `Run beendet.\nNeustart: Enter oder Button.`, true); // overlay
     scoreBox.textContent = // überschreibt box direkt (damit top3 fresh ist)
       `Score: ${Math.floor(score)}\nTop 3 Highscores:\n1) ${top3[0] ?? 0}\n2) ${top3[1] ?? 0}\n3) ${top3[2] ?? 0}`;
@@ -1114,9 +1244,48 @@
     const x = player.x - cam.x; // screen x
     const y = player.y - cam.y; // screen y
 
-    if (invuln > 0 && (Math.floor(invuln*16)%2===0)) return; // blink effekt (manchmal nicht zeichnen)
-
     const bob = player.onGround ? Math.sin(player.bob)*1.2 : 0; // bobbing wenn läuft
+
+    if (dying){ // süße 2s sterbe-animation
+      const cry = Math.sin((2.0 - deathT) * 18) * 1.5;
+      ctx.fillStyle = "#ffd34a";
+      ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2 + bob, 18*player.scale, 15*player.scale, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x+w/2, y+12*player.scale + bob, 14*player.scale, 12*player.scale, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#ff8a2a";
+      ctx.beginPath();
+      ctx.moveTo(x+w/2 - 5*player.scale, y+18*player.scale + bob);
+      ctx.lineTo(x+w/2, y+23*player.scale + bob);
+      ctx.lineTo(x+w/2 + 5*player.scale, y+18*player.scale + bob);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#202020";
+      ctx.beginPath(); ctx.arc(x+w/2 - 5*player.scale, y+10*player.scale + bob, 2.4*player.scale, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x+w/2 + 5*player.scale, y+10*player.scale + bob, 2.4*player.scale, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#5db7ff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x+w/2 - 6*player.scale, y+14*player.scale + bob);
+      ctx.lineTo(x+w/2 - 8*player.scale, y+24*player.scale + bob + cry);
+      ctx.moveTo(x+w/2 + 6*player.scale, y+14*player.scale + bob);
+      ctx.lineTo(x+w/2 + 8*player.scale, y+24*player.scale + bob - cry);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      return;
+    }
+
+    if (invuln > 0){
+      ctx.fillStyle = "rgba(255,224,78,.22)";
+      ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.78, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,245,155,.75)";
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.68, 0, Math.PI*2); ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    if (hurtFlash > 0){
+      const a = 0.18 + 0.50 * (0.5 + 0.5*Math.sin(hurtFlash*52));
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.76, 0, Math.PI*2); ctx.fill();
+    }
 
     ctx.fillStyle = "#ffd34a"; // gelb
     ctx.beginPath(); // body
@@ -1170,6 +1339,28 @@
       ctx.beginPath(); ctx.arc(bx, by, puff*1.45, 0, Math.PI*2); ctx.stroke(); // ring
       ctx.lineWidth = 1; // reset
     }
+
+    if (flameTimer > 0){
+      const bx = x+w/2 + 25*player.facing*player.scale;
+      const by = y+18*player.scale + bob;
+      const len = 116 + Math.sin(worldTime*34)*18;
+      ctx.fillStyle = "rgba(255,72,14,.46)";
+      ctx.beginPath();
+      ctx.moveTo(bx, by-14);
+      ctx.lineTo(bx + player.facing*len, by-44);
+      ctx.lineTo(bx + player.facing*(len+54), by);
+      ctx.lineTo(bx + player.facing*len, by+44);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,232,86,.68)";
+      ctx.beginPath();
+      ctx.moveTo(bx, by-7);
+      ctx.lineTo(bx + player.facing*(len*0.82), by-22);
+      ctx.lineTo(bx + player.facing*(len+26), by);
+      ctx.lineTo(bx + player.facing*(len*0.82), by+22);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   function drawWorld(){ // zeichnet alles in der welt
@@ -1221,15 +1412,32 @@
       const x = e.x - cam.x, y = e.y - cam.y; // screen pos
       if (x < -200 || x > W+200) continue; // cull
       const bob = Math.sin(worldTime*3 + e.bob) * 2;
-      ctx.fillStyle = "#fff7e7"; // egg base
-      ctx.beginPath(); // egg shape
-      ctx.ellipse(x, y+bob, e.r*0.9, e.r*1.15, 0, 0, Math.PI*2); // ellipse
-      ctx.fill(); // fill
-      ctx.fillStyle = "rgba(210,170,120,.7)"; // spots
-      for (let i=0;i<3;i++){ // 3 spots
-        const ox = (Math.sin((i+1)*2.2) * 6); // offset x (random-ish)
-        const oy = (Math.cos((i+1)*1.7) * 6); // offset y
-        ctx.beginPath(); ctx.arc(x+ox, y+bob+oy, 2.1, 0, Math.PI*2); ctx.fill(); // spot
+      if (e.kind === "chili"){
+        ctx.fillStyle = "rgba(255,60,20,.20)";
+        ctx.beginPath(); ctx.arc(x, y+bob, e.r*1.7, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#d92818";
+        ctx.beginPath(); ctx.ellipse(x, y+bob+2, e.r*0.58, e.r*1.15, -0.45, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#49a64a";
+        ctx.beginPath(); ctx.ellipse(x-5, y+bob-e.r, 5, 9, -0.8, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#ffb33c";
+        ctx.beginPath(); ctx.ellipse(x+3, y+bob+4, 3, 8, -0.35, 0, Math.PI*2); ctx.fill();
+      } else {
+        if (e.kind === "goldEgg"){
+          ctx.fillStyle = "rgba(255,218,70,.28)";
+          ctx.beginPath(); ctx.arc(x, y+bob, e.r*1.65, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = "#ffd84e";
+        } else {
+          ctx.fillStyle = "#fff7e7"; // egg base
+        }
+        ctx.beginPath(); // egg shape
+        ctx.ellipse(x, y+bob, e.r*0.9, e.r*1.15, 0, 0, Math.PI*2); // ellipse
+        ctx.fill(); // fill
+        ctx.fillStyle = e.kind === "goldEgg" ? "rgba(255,255,210,.78)" : "rgba(210,170,120,.7)"; // spots
+        for (let i=0;i<3;i++){ // 3 spots
+          const ox = (Math.sin((i+1)*2.2) * 7); // offset x
+          const oy = (Math.cos((i+1)*1.7) * 7); // offset y
+          ctx.beginPath(); ctx.arc(x+ox, y+bob+oy, e.kind === "goldEgg" ? 2.5 : 2.3, 0, Math.PI*2); ctx.fill(); // spot
+        }
       }
     }
 
@@ -1296,6 +1504,11 @@
       } else if (p.kind === "dust"){ // stampfer-staub
         ctx.fillStyle = `rgba(150,105,66,${a*0.55})`;
         ctx.beginPath(); ctx.ellipse(x, y, p.r*1.5, p.r, 0, 0, Math.PI*2); ctx.fill();
+      } else if (p.kind === "flame"){ // chili flammenpartikel
+        ctx.fillStyle = `rgba(255,82,18,${a*0.70})`;
+        ctx.beginPath(); ctx.arc(x, y, p.r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = `rgba(255,230,90,${a*0.56})`;
+        ctx.beginPath(); ctx.arc(x - player.facing*3, y, p.r*0.48, 0, Math.PI*2); ctx.fill();
       } else if (p.kind === "ring"){ // ring
         ctx.strokeStyle = `rgba(255,255,255,${a*0.80})`; // color
         ctx.lineWidth = 3; // width
@@ -1348,7 +1561,10 @@
     ctx.fillText(`Score ${Math.floor(score)}  •  L${lives}  •  Eier ${eggPower}`, 18, 22); // hud line
     ctx.fillText(`HP ${hp}/${MAX_HP}`, 162, 42); // hp text
     ctx.globalAlpha = 0.82; // alpha down
-    ctx.fillText(`Enter Pause  •  ↓ Stampfer`, 18, 56); // hint
+    const buffs = [];
+    if (invuln > 0) buffs.push(`Gold ${invuln.toFixed(1)}s`);
+    if (flameTimer > 0) buffs.push(`Chili ${flameTimer.toFixed(1)}s`);
+    ctx.fillText(buffs.length ? buffs.join("  •  ") : `Enter Pause  •  ↓ Stampfer im Sprung`, 18, 56); // hint/buffs
     ctx.restore(); // restore
   }
 
@@ -1366,6 +1582,7 @@
   let prevEnter = false; // previous enter state
   let prevFire = false; // previous fire state
   let prevDown = false; // previous down state
+  let prevUpRight = false; // combo für stampfer im sprung
 
   function step(t){ // main frame function
     const dt = Math.min(0.02, (t - lastT)/1000); // delta time clamp
@@ -1374,6 +1591,20 @@
     if (keys.enter && !prevEnter) togglePause(); // toggle pause on press edge
     prevEnter = keys.enter; // remember enter
 
+    if (dying){
+      deathT -= dt;
+      deathBeepT -= dt;
+      if (deathBeepT <= 0){
+        deathBeepT = 0.33;
+        beep(620 + Math.random()*120, 0.055, "triangle", 0.045);
+      }
+      hurtFlash = Math.max(hurtFlash, 0.18);
+      render();
+      if (deathT <= 0) finishGameOver();
+      requestAnimationFrame(step);
+      return;
+    }
+
     if (paused){ // if paused, still render menu bg
       render(); // draw frame
       requestAnimationFrame(step); // next frame
@@ -1381,6 +1612,9 @@
     }
 
     invuln = Math.max(0, invuln - dt); // invuln down
+    hurtFlash = Math.max(0, hurtFlash - dt); // trefferblinken down
+    hurtGrace = Math.max(0, hurtGrace - dt); // kurzer trefferschutz down
+    flameTimer = Math.max(0, flameTimer - dt); // chili buff down
     fireCooldown = Math.max(0, fireCooldown - dt); // cooldown down
     stompCooldown = Math.max(0, stompCooldown - dt); // stampfer cooldown down
     stompLock = Math.max(0, stompLock - dt); // stampfer standzeit down
@@ -1398,8 +1632,10 @@
       if (shakeT <= 0){ shakeT = 0; shakePow = 0; } // stop
     }
 
-    if (keys.down && !prevDown) doStomp(); // stampfer auf tastendruck
+    const upRightCombo = keys.up && keys.right;
+    if ((keys.down && !prevDown) || (upRightCombo && !prevUpRight && !player.onGround)) doStomp(); // stampfer auf tastendruck/hoch+rechts in luft
     prevDown = keys.down;
+    prevUpRight = upRightCombo;
 
     // movement input
     if (stompLock <= 0){
@@ -1430,11 +1666,12 @@
 
     // physics
     player.vy += gravity * dt; // gravity apply
-    player.vx *= player.onGround ? 0.86 : 0.965; // friction ground/air, etwas natürlicher
+    player.vx *= player.onGround ? 0.83 : 0.95; // friction ground/air wie vorher
 
     player.vx = clamp(player.vx, -player.maxVx, player.maxVx); // clamp speed
     player.vy = clamp(player.vy, -1750, 2100); // clamp y speed
 
+    updateInvulnContact(); // goldeneier kontakt zerstört objekte
     resolvePlayerCollisions(dt); // collisions
 
     // camera follows player
@@ -1446,6 +1683,7 @@
 
     collectEggs(); // egg pickup
     updateEnemies(dt); // enemy update
+    updateFlamethrower(dt); // chili flammenwerfer
     updateFireballs(dt); // fireballs update
 
     // particles update (inlined)
@@ -1470,6 +1708,10 @@
         p.x += p.vx*dt; p.y += p.vy*dt;
         p.vx *= 0.88;
         p.r *= 1.012;
+      } else if (p.kind === "flame"){
+        p.x += p.vx*dt; p.y += p.vy*dt;
+        p.vx *= 0.86; p.vy *= 0.92;
+        p.r *= 0.94;
       }
       if (p.t >= p.life) particles.splice(i,1); // remove if done
     }
