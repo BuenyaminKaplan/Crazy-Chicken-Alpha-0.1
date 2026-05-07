@@ -230,8 +230,8 @@
   let pendingTop3 = null; // highscores für danach
 
   let lives = 3; // leben anzahl
-  let hp = 5; // health points
-  const MAX_HP = 5; // max hp, halbierte lebensanzeige
+  let hp = 3; // health points
+  const MAX_HP = 3; // max hp, halbierte lebensanzeige
 
   // Score via distance
   let startX = 0; // start position x
@@ -270,6 +270,7 @@
   let invuln = 0; // goldeneier-power: kontakt zerstört gegner/objekte
   let hurtFlash = 0; // helles aufblinken nach treffer
   let hurtGrace = 0; // kurzer trefferschutz ohne goldeneier-power
+  let loadGrace = 0; // schutz beim laden/spawnen der welt
 
   // world/camera
   const cam = { x:0, y:0 }; // kamera position
@@ -514,7 +515,7 @@
 
       if (Math.random() < 0.70) spawnPropCluster(baseX + 820); // props oft
 
-      const eggCount = 2 + Math.floor(Math.random()*3); // 2..4 eggs
+      const eggCount = Math.random() < 0.62 ? 0 : 1; // deutlich weniger collectibles pro segment
       for (let i=0;i<eggCount;i++){ // spawn eggs
         const ex = baseX + 260 + Math.random()*(segmentLen-420); // egg x random
         const ey = (Math.random() < 0.55) ? (groundY - 88) : (groundY - (6 + Math.floor(Math.random()*4))*TILE); // egg y random
@@ -554,7 +555,7 @@
 
   // ---------------- Damage / health ----------------
   function takeDamage(amount=1){ // spieler nimmt schaden
-    if (invuln > 0 || hurtGrace > 0 || paused || gameOver || dying) return; // gold-buff/kurzer trefferschutz/pause -> nix
+    if (invuln > 0 || hurtGrace > 0 || loadGrace > 0 || paused || gameOver || dying) return; // gold-buff/ladeschutz/pause -> nix
     hp -= amount; // hp runter
     hurtFlash = 0.85; // helles aufblinken
     hurtGrace = 0.65; // kurze schadenspause, aber ohne goldeneier kontakt-power
@@ -1059,6 +1060,7 @@
     invuln = 0; // invuln reset
     hurtFlash = 0; // trefferblinken reset
     hurtGrace = 0; // trefferschutz reset
+    loadGrace = 2.0; // beim ersten laden keinen schaden nehmen
     charging = false; // charging off
     chargeT = 0; // charge time reset
     fireCooldown = 0; // cooldown reset
@@ -1115,13 +1117,23 @@
     player.onGround = false;
     hurtFlash = 0.9;
     hurtGrace = 0.75;
+    loadGrace = Math.max(loadGrace, 1.4); // respawn/laden sicher schützen
     stompPrimed = false;
     stompLock = 0;
   }
 
   // ---------------- Rendering ----------------
   function cycleT(){ return (worldTime % DAY_LENGTH) / DAY_LENGTH; } // 0..1
-  function nightAmount(){ return clamp(Math.cos(cycleT()*Math.PI*2)*-0.5 + 0.5, 0, 1); } // nachtanteil
+  function smoothstep(a,b,v){ const t = clamp((v-a)/(b-a), 0, 1); return t*t*(3-2*t); }
+  function mixHex(a,b,t){
+    const ar = parseInt(a.slice(1,3),16), ag = parseInt(a.slice(3,5),16), ab = parseInt(a.slice(5,7),16);
+    const br = parseInt(b.slice(1,3),16), bg = parseInt(b.slice(3,5),16), bb = parseInt(b.slice(5,7),16);
+    const rr = Math.round(lerp(ar,br,t)).toString(16).padStart(2,"0");
+    const rg = Math.round(lerp(ag,bg,t)).toString(16).padStart(2,"0");
+    const rb = Math.round(lerp(ab,bb,t)).toString(16).padStart(2,"0");
+    return `#${rr}${rg}${rb}`;
+  }
+  function nightAmount(){ const n = clamp(Math.cos(cycleT()*Math.PI*2)*-0.5 + 0.5, 0, 1); return smoothstep(0,1,n); } // weicher nachtanteil
 
   function skyPoint(t, radius=410, yBase=360){ // position auf einem großen himmelsbogen
     const a = Math.PI * (1.08 + t);
@@ -1133,10 +1145,15 @@
 
   function drawBackground(){ // zeichnet hintergrund (sky, sun, hills)
     const n = nightAmount();
+    const dusk = Math.sin(cycleT()*Math.PI*2);
+    const duskAmt = (1 - Math.abs(dusk)) * (1 - Math.abs(n - 0.5)*2);
+    const skyTop = mixHex(mixHex("#79c8ff", "#121936", n), "#f08f66", duskAmt*0.42);
+    const skyMid = mixHex(mixHex("#d6f3ff", "#26355f", n), "#f5b073", duskAmt*0.34);
+    const skyLow = mixHex(mixHex("#f5f0cc", "#5c6d73", n), "#ffcf83", duskAmt*0.45);
     const g = ctx.createLinearGradient(0,0,0,H); // gradient
-    g.addColorStop(0, n > 0.55 ? "#121936" : "#79c8ff"); // oben himmel
-    g.addColorStop(0.62, n > 0.55 ? "#26355f" : "#d6f3ff"); // mitte
-    g.addColorStop(1, n > 0.55 ? "#5c6d73" : "#f5f0cc"); // horizont
+    g.addColorStop(0, skyTop); // oben himmel
+    g.addColorStop(0.62, skyMid); // mitte
+    g.addColorStop(1, skyLow); // horizont
     ctx.fillStyle = g; // fill color set
     ctx.fillRect(0,0,W,H); // rectangle full screen
 
@@ -1158,10 +1175,10 @@
     const moon = skyPoint((cycleT()+0.5)%1, 440, 398);
     ctx.fillStyle = "rgba(240,244,255,.92)";
     ctx.beginPath(); ctx.arc(moon.x, moon.y, 34, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = n > 0.55 ? "#121936" : "#79c8ff";
+    ctx.fillStyle = skyTop;
     ctx.beginPath(); ctx.arc(moon.x+12, moon.y-6, 30, 0, Math.PI*2); ctx.fill();
 
-    ctx.fillStyle = n > 0.55 ? "#355a57" : "#74bf75"; // ferne hügel
+    ctx.fillStyle = mixHex("#74bf75", "#355a57", n); // ferne hügel
     ctx.beginPath();
     ctx.moveTo(0, 360);
     ctx.quadraticCurveTo(230, 278, 485, 344);
@@ -1169,7 +1186,7 @@
     ctx.lineTo(W, 390); ctx.lineTo(W, H); ctx.lineTo(0, H);
     ctx.closePath(); ctx.fill();
 
-    ctx.fillStyle = n > 0.55 ? "#2e504c" : "#58aa60"; // zweite hügelreihe
+    ctx.fillStyle = mixHex("#58aa60", "#2e504c", n); // zweite hügelreihe
     ctx.beginPath();
     ctx.moveTo(0, 405);
     ctx.quadraticCurveTo(260, 330, 520, 402);
@@ -1426,9 +1443,9 @@
     drawDecor();
 
     const n = nightAmount();
-    ctx.fillStyle = n > 0.55 ? "#3f7447" : "#5aa85b"; // ground color
+    ctx.fillStyle = mixHex("#5aa85b", "#3f7447", n); // ground color
     ctx.fillRect(0 - 200, groundY - cam.y, W + 400, H - groundY + 200); // ground rect
-    ctx.fillStyle = n > 0.55 ? "#315332" : "#3f833e"; // bodenkante
+    ctx.fillStyle = mixHex("#3f833e", "#315332", n); // bodenkante
     ctx.fillRect(0 - 200, groundY - cam.y, W + 400, 10);
 
     for (const c of groundCracks){ // stampfer-risse
@@ -1667,6 +1684,7 @@
     invuln = Math.max(0, invuln - dt); // invuln down
     hurtFlash = Math.max(0, hurtFlash - dt); // trefferblinken down
     hurtGrace = Math.max(0, hurtGrace - dt); // kurzer trefferschutz down
+    loadGrace = Math.max(0, loadGrace - dt); // ladeschutz down
     flameTimer = Math.max(0, flameTimer - dt); // chili buff down
     fireCooldown = Math.max(0, fireCooldown - dt); // cooldown down
     stompCooldown = Math.max(0, stompCooldown - dt); // stampfer cooldown down
