@@ -46,6 +46,7 @@
   // ---------------- Audio (WebAudio, no files) ----------------
   let actx = null; // audio context (browser sound engine)
   let master = null; // master gain (lautstärke regler)
+  let lastMaterialSfx = 0; // verhindert sound-chaos bei großen explosionen
 
   function audioTryResume(){ // macht audio “an” wenns geht
     try{
@@ -106,6 +107,53 @@
     n.connect(ng); ng.connect(master); // connect
     n.start(t); // start noise
     n.stop(t + dur + 0.02); // stop
+  }
+
+  function noiseBurst(dur=0.12, gain=0.08, filterFreq=900){ // kurze geräuschwolke für farm/impact sounds
+    if (!actx || actx.state !== "running") return;
+    const t = actx.currentTime;
+    const bufferSize = Math.floor(actx.sampleRate * dur);
+    const buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i=0;i<bufferSize;i++){
+      const k = 1 - i/bufferSize;
+      data[i] = (Math.random()*2-1) * k;
+    }
+    const src = actx.createBufferSource();
+    const filter = actx.createBiquadFilter();
+    const g = actx.createGain();
+    src.buffer = buffer;
+    filter.type = "lowpass";
+    filter.frequency.value = filterFreq;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filter); filter.connect(g); g.connect(master);
+    src.start(t); src.stop(t + dur + 0.02);
+  }
+
+  function cluck(){ // einsammel-sound mit kleinem huhn-charakter
+    beep(620, 0.035, "triangle", 0.08);
+    setTimeout(() => beep(760, 0.035, "triangle", 0.06), 45);
+  }
+
+  function enemyVoice(type){ // schweine/kühe klingen unterschiedlich beim treffer
+    if (type === "cow"){
+      beep(145, 0.10, "sawtooth", 0.065);
+      setTimeout(() => beep(118, 0.12, "sawtooth", 0.055), 70);
+    } else {
+      beep(260, 0.045, "square", 0.055);
+      setTimeout(() => beep(210, 0.055, "square", 0.05), 42);
+    }
+  }
+
+  function blockBreakSound(kind){ // material feedback
+    if (actx && actx.currentTime - lastMaterialSfx < 0.035) return;
+    if (actx) lastMaterialSfx = actx.currentTime;
+    if (kind === "hay") { noiseBurst(0.11, 0.07, 1500); beep(220, 0.035, "triangle", 0.035); return; }
+    if (kind === "rock") { noiseBurst(0.14, 0.085, 520); boom(55, 0.08, 0.055); return; }
+    if (kind === "tractor") { noiseBurst(0.16, 0.08, 780); beep(95, 0.06, "sawtooth", 0.045); return; }
+    if (kind === "treeTrunk" || kind === "wood" || kind === "fence") { noiseBurst(0.10, 0.065, 950); beep(180, 0.035, "square", 0.035); return; }
+    noiseBurst(0.10, 0.055, 1200);
   }
 
   // ---------------- Helpers ----------------
@@ -217,9 +265,13 @@
   const blocks = []; // zerstörbare blöcke
   const enemies = []; // gegner array
   const eggs = []; // eier array
+  const decor = []; // nicht-kollidierende details für mehr tiefe
 
   let nextGenX = 0; // bis wohin world generiert wurde
   let nextId = 1; // id counter für enemies
+  let worldTime = 0; // zeit für tag-nacht zyklus
+  const DAY_LENGTH = 96; // sekunden für einen kompletten sonne/mond zyklus
+  let ambientT = 2.5; // kleine farm-atmosphäre in abständen
 
   // ---------------- Player ----------------
   const player = { // spieler object
@@ -293,24 +345,33 @@
 
   function spawnPropCluster(x0){ // baut deko/props auf
     const terrainHP = 2; // hp für boden blocks (so halb)
-    const propHP = 2; // hp für props
+    const propHP = 3; // hp für props
 
     const pick = Math.random(); // random decide
-    if (pick < 0.30){
-      addBlockGrid(x0, groundY-5*TILE, 2, 5, "treeTrunk", propHP); // baum stamm
-      addBlockGrid(x0-1*TILE, groundY-8*TILE, 6, 3, "treeLeaf", propHP); // blätter
-      carveRect(x0+1*TILE, groundY-8*TILE, 2*TILE, TILE, "treeLeaf"); // loch in blättern
-    } else if (pick < 0.55){
-      addBlockGrid(x0, groundY-3*TILE, 4, 3, "rock", propHP+1); // stein
-      carveRect(x0+TILE, groundY-3*TILE, 2*TILE, TILE, "rock"); // ausbuchtung
-    } else if (pick < 0.75){
-      addBlockGrid(x0, groundY-2*TILE, 7, 2, "car", propHP); // auto unten
-      addBlockGrid(x0+TILE, groundY-4*TILE, 5, 2, "car", propHP); // auto oben
-      carveRect(x0+2*TILE, groundY-4*TILE, 3*TILE, TILE, "car"); // fenster oder so
-    } else {
+    if (pick < 0.24){
+      addBlockGrid(x0+TILE, groundY-5*TILE, 2, 5, "treeTrunk", propHP); // baum stamm
+      addBlockGrid(x0-1*TILE, groundY-8*TILE, 6, 3, "treeLeaf", 2); // baumkrone
+      addBlockGrid(x0, groundY-9*TILE, 4, 1, "treeLeaf", 2); // oben runder
+      carveRect(x0+2*TILE, groundY-8*TILE, TILE, TILE, "treeLeaf"); // cartoon-lücke
+    } else if (pick < 0.42){
+      addBlockGrid(x0, groundY-3*TILE, 5, 3, "rock", propHP+2); // größerer felsen
+      carveRect(x0, groundY-3*TILE, TILE, TILE, "rock");
+      carveRect(x0+4*TILE, groundY-3*TILE, TILE, TILE, "rock");
+    } else if (pick < 0.60){
+      addBlockGrid(x0, groundY-2*TILE, 7, 2, "tractor", propHP+1); // traktor chassis
+      addBlockGrid(x0+3*TILE, groundY-4*TILE, 3, 2, "tractor", propHP+1); // kabine
+      carveRect(x0+4*TILE, groundY-4*TILE, TILE, TILE, "tractor"); // fenster
+    } else if (pick < 0.78){
+      addBlockGrid(x0, groundY-2*TILE, 6, 2, "hay", 2); // zerstörbarer heuhaufen
+      addBlockGrid(x0+TILE, groundY-3*TILE, 4, 1, "hay", 2);
+      addBlockGrid(x0+2*TILE, groundY-4*TILE, 2, 1, "hay", 2);
+    } else if (pick < 0.90){
       addBlockGrid(x0, groundY-3*TILE, 4, 3, "well", propHP); // brunnen
       carveRect(x0+TILE, groundY-2*TILE, 2*TILE, TILE, "well"); // innen frei
-      addBlockGrid(x0, groundY-5*TILE, 4, 1, "well", propHP); // dach rand
+      addBlockGrid(x0-TILE, groundY-5*TILE, 6, 1, "wood", propHP); // dach rand
+    } else {
+      addBlockGrid(x0, groundY-2*TILE, 9, 2, "fence", 2); // zaunbarriere
+      for (let i=0;i<9;i+=2) addBlockGrid(x0+i*TILE, groundY-4*TILE, 1, 2, "fence", 2);
     }
 
     if (Math.random() < 0.65){ // manchmal plattform extra
@@ -319,6 +380,9 @@
       addBlockGrid(x0 + 420, y, tiles, 1, "wood", terrainHP); // wood plattform
       for (let i=0;i<tiles;i+=8) addBlockGrid(x0 + 420 + i*TILE, y+TILE, 1, 2, "wood", terrainHP); // stützen
     }
+
+    if (Math.random() < 0.55) decor.push({ kind:"grass", x:x0-80, y:groundY, w:260 + Math.random()*180 });
+    if (Math.random() < 0.35) decor.push({ kind:"barn", x:x0+520, y:groundY-150, w:150, h:150 });
   }
 
   function spawnEnemy(x){ // erstellt gegner bei x
@@ -349,8 +413,34 @@
     });
   }
 
+  function isBlockedRect(x, y, w, h){ // prüft ob ein rechteck in soliden blöcken steckt
+    for (const b of blocks){
+      if (aabb(x,y,w,h, b.x,b.y,b.w,b.h)) return true;
+    }
+    return false;
+  }
+
+  function safeEggPosition(x, preferredY){ // findet freie eier-position statt in objekten
+    const yChoices = [
+      preferredY,
+      groundY - 86,
+      groundY - 140,
+      groundY - 196,
+      groundY - 252
+    ];
+    const xOffsets = [0, -42, 42, -84, 84, -126, 126];
+    for (const ox of xOffsets){
+      for (const y of yChoices){
+        const tx = x + ox;
+        if (!isBlockedRect(tx-16, y-20, 32, 40)) return { x:tx, y };
+      }
+    }
+    return { x, y: groundY - 92 };
+  }
+
   function spawnEgg(x, y){ // macht ein egg
-    eggs.push({ x, y, r: 12, got:false }); // r = radius
+    const p = safeEggPosition(x, y);
+    eggs.push({ x:p.x, y:p.y, r: 12, got:false, bob:Math.random()*Math.PI*2 }); // r = radius
   }
 
   function generateTo(xMax){ // generiert world bis xMax
@@ -379,7 +469,7 @@
       const eggCount = 2 + Math.floor(Math.random()*3); // 2..4 eggs
       for (let i=0;i<eggCount;i++){ // spawn eggs
         const ex = baseX + 260 + Math.random()*(segmentLen-420); // egg x random
-        const ey = (Math.random() < 0.65) ? (groundY - 88) : (groundY - 6*TILE); // egg y random
+        const ey = (Math.random() < 0.55) ? (groundY - 88) : (groundY - (6 + Math.floor(Math.random()*4))*TILE); // egg y random
         spawnEgg(ex, ey); // add egg
       }
 
@@ -406,6 +496,9 @@
     for (let i=eggs.length-1;i>=0;i--){ // eggs cleanup
       const e = eggs[i]; // egg
       if (e.x < killX || (e.got && e.x < xMin - 800)) eggs.splice(i,1); // weg
+    }
+    for (let i=decor.length-1;i>=0;i--){ // decor cleanup
+      if (decor[i].x + (decor[i].w || 0) < killX) decor.splice(i,1);
     }
   }
 
@@ -497,7 +590,7 @@
         e.got = true; // mark collected
         spawnExplosion(e.x, e.y, 0.85); // fx
         addShake(0.35, 0.07); // little shake
-        beep(520, 0.05, "triangle", 0.10); // bling sound
+        cluck(); // bling sound
 
         eggPower = clamp(eggPower + 1, 0, EGG_MAX); // eggPower plus 1
         updateScaleFromEggs(); // update scale
@@ -514,8 +607,10 @@
     if (e.hp <= 0){ // wenn tot
       e.alive = false; // dead
       boom(95, 0.12, 0.12); // sound
+      enemyVoice(e.type);
     } else {
       beep(300, 0.035, "square", 0.07); // hit sound
+      enemyVoice(e.type);
     }
   }
 
@@ -562,6 +657,7 @@
           e.alive = false; // kill enemy
           spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.15); // fx
           boom(95, 0.10, 0.11); // sound
+          enemyVoice(e.type);
           player.vy = -980; // bounce up
           addShake(0.45, 0.08); // shake
         } else { // sonst player hit
@@ -581,6 +677,7 @@
       b.hp -= dmg; // hp runter
       if (b.hp <= 0){ // wenn kaputt
         spawnExplosion(b.x+b.w/2, b.y+b.h/2, 0.55); // fx
+        blockBreakSound(b.kind);
         blocks.splice(i,1); // löschen
       }
     }
@@ -751,6 +848,7 @@
     blocks.length = 0; // blocks leer
     enemies.length = 0; // enemies leer
     eggs.length = 0; // eggs leer
+    decor.length = 0; // deko leer
     fireballs.length = 0; // fireballs leer
     particles.length = 0; // particles leer
 
@@ -794,6 +892,8 @@
     score = 0; // score reset
 
     cam.x = 0; cam.y = 0; // cam reset
+    worldTime = 18; // morgens starten, nicht mitten in der nacht
+    ambientT = 2.5;
 
     resetWorld(); // world neu
   }
@@ -808,26 +908,62 @@
   }
 
   // ---------------- Rendering ----------------
+  function cycleT(){ return (worldTime % DAY_LENGTH) / DAY_LENGTH; } // 0..1
+  function nightAmount(){ return clamp(Math.cos(cycleT()*Math.PI*2)*-0.5 + 0.5, 0, 1); } // nachtanteil
+
+  function skyPoint(t, radius=410, yBase=360){ // position auf einem großen himmelsbogen
+    const a = Math.PI * (1.08 + t);
+    return {
+      x: W*0.5 + Math.cos(a) * radius,
+      y: yBase + Math.sin(a) * radius
+    };
+  }
+
   function drawBackground(){ // zeichnet hintergrund (sky, sun, hills)
+    const n = nightAmount();
     const g = ctx.createLinearGradient(0,0,0,H); // gradient
-    g.addColorStop(0, "#87c9ff"); // oben himmel
-    g.addColorStop(1, "#dff7ff"); // unten hell
+    g.addColorStop(0, n > 0.55 ? "#121936" : "#79c8ff"); // oben himmel
+    g.addColorStop(0.62, n > 0.55 ? "#26355f" : "#d6f3ff"); // mitte
+    g.addColorStop(1, n > 0.55 ? "#5c6d73" : "#f5f0cc"); // horizont
     ctx.fillStyle = g; // fill color set
     ctx.fillRect(0,0,W,H); // rectangle full screen
 
-    ctx.fillStyle = "rgba(255,255,180,.9)"; // sonne farbe
-    ctx.beginPath(); ctx.arc(110, 90, 42, 0, Math.PI*2); ctx.fill(); // sonne kreis
+    if (n > 0.20){ // sterne nur wenn es dunkel genug ist
+      ctx.fillStyle = `rgba(255,255,220,${(n-0.2)*0.65})`;
+      for (let i=0;i<38;i++){
+        const sx = (i*137 + Math.floor(cam.x*0.03)) % W;
+        const sy = 28 + ((i*61) % 160);
+        ctx.fillRect(sx, sy, i%5===0 ? 2 : 1, i%5===0 ? 2 : 1);
+      }
+    }
 
-    ctx.fillStyle = "#6ecb7f"; // hügel grün
-    ctx.beginPath(); // start path
-    ctx.moveTo(0, 360); // start
-    ctx.quadraticCurveTo(240, 270, 480, 340); // curve 1
-    ctx.quadraticCurveTo(720, 420, 980, 330); // curve 2
-    ctx.lineTo(W, 390); // line
-    ctx.lineTo(W, H); // down
-    ctx.lineTo(0, H); // left
-    ctx.closePath(); // close
-    ctx.fill(); // fill hills
+    const sun = skyPoint(cycleT(), 440, 398);
+    ctx.fillStyle = "rgba(255,232,132,.96)";
+    ctx.beginPath(); ctx.arc(sun.x, sun.y, 42, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "rgba(255,210,80,.18)";
+    ctx.beginPath(); ctx.arc(sun.x, sun.y, 70, 0, Math.PI*2); ctx.fill();
+
+    const moon = skyPoint((cycleT()+0.5)%1, 440, 398);
+    ctx.fillStyle = "rgba(240,244,255,.92)";
+    ctx.beginPath(); ctx.arc(moon.x, moon.y, 34, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = n > 0.55 ? "#121936" : "#79c8ff";
+    ctx.beginPath(); ctx.arc(moon.x+12, moon.y-6, 30, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = n > 0.55 ? "#355a57" : "#74bf75"; // ferne hügel
+    ctx.beginPath();
+    ctx.moveTo(0, 360);
+    ctx.quadraticCurveTo(230, 278, 485, 344);
+    ctx.quadraticCurveTo(710, 402, 980, 330);
+    ctx.lineTo(W, 390); ctx.lineTo(W, H); ctx.lineTo(0, H);
+    ctx.closePath(); ctx.fill();
+
+    ctx.fillStyle = n > 0.55 ? "#2e504c" : "#58aa60"; // zweite hügelreihe
+    ctx.beginPath();
+    ctx.moveTo(0, 405);
+    ctx.quadraticCurveTo(260, 330, 520, 402);
+    ctx.quadraticCurveTo(760, 470, 980, 382);
+    ctx.lineTo(W, H); ctx.lineTo(0, H);
+    ctx.closePath(); ctx.fill();
   }
 
   function blockColor(kind){ // gibt farbe für block-art
@@ -837,9 +973,67 @@
       case "rock": return "#8c94a2"; // rock
       case "treeTrunk": return "#7a563a"; // trunk
       case "treeLeaf": return "#4ab86a"; // leaf
-      case "car": return "#3c3c46"; // car
+      case "tractor": return "#c73e2d"; // tractor
+      case "hay": return "#d9b84b"; // hay
+      case "fence": return "#9b7148"; // fence
       case "well": return "#b9c2d4"; // well
       default: return "#888"; // fallback
+    }
+  }
+
+  function drawBlock(b, x, y){ // tile wird je nach material gezeichnet
+    ctx.fillStyle = blockColor(b.kind);
+    if (b.kind === "rock"){
+      ctx.beginPath();
+      ctx.moveTo(x+3,y+20); ctx.lineTo(x+7,y+6); ctx.lineTo(x+18,y+3); ctx.lineTo(x+23,y+14); ctx.lineTo(x+19,y+24); ctx.lineTo(x+6,y+24);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.moveTo(x+8,y+8); ctx.lineTo(x+16,y+5); ctx.stroke();
+    } else if (b.kind === "treeLeaf"){
+      ctx.beginPath(); ctx.arc(x+12,y+12,13,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.10)"; ctx.beginPath(); ctx.arc(x+7,y+8,5,0,Math.PI*2); ctx.fill();
+    } else if (b.kind === "treeTrunk" || b.kind === "wood" || b.kind === "fence"){
+      ctx.fillRect(x, y, b.w, b.h);
+      ctx.strokeStyle = "rgba(70,38,18,.35)";
+      ctx.beginPath(); ctx.moveTo(x+5,y+2); ctx.lineTo(x+7,y+b.h-2); ctx.moveTo(x+16,y+3); ctx.lineTo(x+14,y+b.h-4); ctx.stroke();
+    } else if (b.kind === "hay"){
+      ctx.fillRect(x+1, y+2, b.w-2, b.h-3);
+      ctx.strokeStyle = "rgba(120,78,20,.35)";
+      ctx.beginPath(); ctx.moveTo(x+3,y+8); ctx.lineTo(x+21,y+5); ctx.moveTo(x+2,y+17); ctx.lineTo(x+22,y+20); ctx.stroke();
+    } else if (b.kind === "tractor"){
+      ctx.fillRect(x, y+3, b.w, b.h-4);
+      ctx.fillStyle = "rgba(255,230,120,.55)";
+      ctx.fillRect(x+5, y+6, 9, 7);
+    } else if (b.kind === "well"){
+      ctx.fillRect(x, y, b.w, b.h);
+      ctx.strokeStyle = "rgba(70,80,100,.35)";
+      ctx.strokeRect(x+2, y+3, b.w-4, b.h-6);
+    } else {
+      ctx.fillRect(x, y, b.w, b.h);
+      ctx.fillStyle = "rgba(255,255,255,.08)";
+      ctx.fillRect(x+2, y+2, b.w-4, 4);
+    }
+  }
+
+  function drawDecor(){ // hintergrunddetails wie gras und scheunen
+    for (const d of decor){
+      const x = d.x - cam.x*0.92;
+      if (x < -260 || x > W+260) continue;
+      if (d.kind === "grass"){
+        ctx.strokeStyle = "rgba(34,112,48,.55)";
+        for (let i=0;i<d.w;i+=14){
+          const gx = x+i;
+          ctx.beginPath(); ctx.moveTo(gx, d.y-cam.y); ctx.lineTo(gx+4, d.y-cam.y-12-(i%22)); ctx.stroke();
+        }
+      } else if (d.kind === "barn"){
+        const y = d.y - cam.y;
+        ctx.fillStyle = "#9d2f2f"; ctx.fillRect(x, y, d.w, d.h);
+        ctx.fillStyle = "#6f2222";
+        ctx.beginPath(); ctx.moveTo(x-12,y); ctx.lineTo(x+d.w/2,y-58); ctx.lineTo(x+d.w+12,y); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 4;
+        ctx.strokeRect(x+42,y+74,64,76);
+        ctx.beginPath(); ctx.moveTo(x+42,y+74); ctx.lineTo(x+106,y+150); ctx.moveTo(x+106,y+74); ctx.lineTo(x+42,y+150); ctx.stroke();
+        ctx.lineWidth = 1;
+      }
     }
   }
 
@@ -915,14 +1109,18 @@
     ctx.save(); // save state
     ctx.translate(sx, sy); // translate for shake
 
-    ctx.fillStyle = "#5aa85b"; // ground color
+    drawDecor();
+
+    const n = nightAmount();
+    ctx.fillStyle = n > 0.55 ? "#3f7447" : "#5aa85b"; // ground color
     ctx.fillRect(0 - 200, groundY - cam.y, W + 400, H - groundY + 200); // ground rect
+    ctx.fillStyle = n > 0.55 ? "#315332" : "#3f833e"; // bodenkante
+    ctx.fillRect(0 - 200, groundY - cam.y, W + 400, 10);
 
     for (const b of blocks){ // draw blocks
       const x = b.x - cam.x, y = b.y - cam.y; // screen pos
       if (x < -200 || x > W+200) continue; // skip offscreen
-      ctx.fillStyle = blockColor(b.kind); // set color
-      ctx.fillRect(x, y, b.w, b.h); // draw rect
+      drawBlock(b, x, y); // draw material
       if (b.hp <= 1){ // cracked effect
         ctx.strokeStyle = "rgba(0,0,0,.18)"; // line color
         ctx.beginPath(); // crack line
@@ -936,15 +1134,16 @@
       if (e.got) continue; // skip collected
       const x = e.x - cam.x, y = e.y - cam.y; // screen pos
       if (x < -200 || x > W+200) continue; // cull
+      const bob = Math.sin(worldTime*3 + e.bob) * 2;
       ctx.fillStyle = "#fff7e7"; // egg base
       ctx.beginPath(); // egg shape
-      ctx.ellipse(x, y, e.r*0.9, e.r*1.15, 0, 0, Math.PI*2); // ellipse
+      ctx.ellipse(x, y+bob, e.r*0.9, e.r*1.15, 0, 0, Math.PI*2); // ellipse
       ctx.fill(); // fill
       ctx.fillStyle = "rgba(210,170,120,.7)"; // spots
       for (let i=0;i<3;i++){ // 3 spots
         const ox = (Math.sin((i+1)*2.2) * 6); // offset x (random-ish)
         const oy = (Math.cos((i+1)*1.7) * 6); // offset y
-        ctx.beginPath(); ctx.arc(x+ox, y+oy, 2.1, 0, Math.PI*2); ctx.fill(); // spot
+        ctx.beginPath(); ctx.arc(x+ox, y+bob+oy, 2.1, 0, Math.PI*2); ctx.fill(); // spot
       }
     }
 
@@ -958,21 +1157,30 @@
 
       if (e.type === "pig"){ // pig draw
         ctx.fillStyle = "#ffb6c1"; // pink
-        ctx.fillRect(x, y, e.w, e.h); // body
+        ctx.beginPath(); ctx.ellipse(x+e.w/2, y+e.h/2, e.w/2, e.h/2, 0, 0, Math.PI*2); ctx.fill(); // body
+        ctx.fillStyle = "#ff9caf";
+        ctx.beginPath(); ctx.arc(x+10, y+3, 7, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x+24, y+2, 7, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = "#ff8da0"; // snout
-        ctx.fillRect(x+e.w-16, y+10, 12, 10); // snout rect
+        ctx.beginPath(); ctx.ellipse(x+e.w-10, y+15, 10, 7, 0, 0, Math.PI*2); ctx.fill(); // snout
         ctx.fillStyle = "#1b1b1b"; // eye
-        ctx.fillRect(x+8, y+10, 3, 3); // eye pixel
+        ctx.beginPath(); ctx.arc(x+12, y+11, 2.3, 0, Math.PI*2); ctx.fill();
+        ctx.fillRect(x+e.w-13, y+14, 2, 2); ctx.fillRect(x+e.w-7, y+14, 2, 2);
+        ctx.strokeStyle = "#8f4d57"; ctx.beginPath(); ctx.arc(x+2, y+17, 7, -1.2, 1.2); ctx.stroke();
+        ctx.strokeStyle = "#7a4a55"; ctx.beginPath(); ctx.moveTo(x+10,y+e.h-2); ctx.lineTo(x+8,y+e.h+5); ctx.moveTo(x+29,y+e.h-2); ctx.lineTo(x+31,y+e.h+5); ctx.stroke();
       } else { // cow draw
         ctx.fillStyle = "#fff"; // white
-        ctx.fillRect(x, y, e.w, e.h); // body
+        ctx.beginPath(); ctx.ellipse(x+e.w/2, y+e.h/2, e.w/2, e.h/2, 0, 0, Math.PI*2); ctx.fill(); // body
         ctx.fillStyle = "#222"; // spots
-        ctx.fillRect(x+10, y+8, 10, 10); // spot 1
-        ctx.fillRect(x+32, y+18, 10, 10); // spot 2
+        ctx.beginPath(); ctx.ellipse(x+15, y+14, 9, 7, .4, 0, Math.PI*2); ctx.fill(); // spot 1
+        ctx.beginPath(); ctx.ellipse(x+36, y+24, 10, 8, -.2, 0, Math.PI*2); ctx.fill(); // spot 2
+        ctx.fillStyle = "#f1f1f1"; ctx.beginPath(); ctx.ellipse(x+e.w-9, y+16, 14, 13, 0, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = "#1b1b1b"; // eye
-        ctx.fillRect(x+8, y+12, 3, 3); // eye
+        ctx.beginPath(); ctx.arc(x+e.w-13, y+11, 2.3, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = "#f2a7a7"; // snout-ish
-        ctx.fillRect(x+e.w-16, y+18, 12, 10); // snout
+        ctx.beginPath(); ctx.ellipse(x+e.w-8, y+23, 12, 8, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#121212"; ctx.fillRect(x+e.w-12, y+22, 2, 2); ctx.fillRect(x+e.w-5, y+22, 2, 2);
+        ctx.strokeStyle = "#3b312b"; ctx.beginPath(); ctx.moveTo(x+12,y+e.h-2); ctx.lineTo(x+10,y+e.h+7); ctx.moveTo(x+40,y+e.h-2); ctx.lineTo(x+42,y+e.h+7); ctx.stroke();
       }
 
       ctx.globalAlpha = 1; // reset alpha
@@ -1028,6 +1236,15 @@
     ctx.restore(); // restore
   }
 
+  function drawDayNightOverlay(){ // macht die welt nachts sichtbar dunkler ohne hud
+    const n = nightAmount();
+    if (n <= 0.08) return;
+    ctx.save();
+    ctx.fillStyle = `rgba(7,12,32,${n*0.34})`;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
   // ---------------- Main Loop ----------------
   let lastT = performance.now(); // last timestamp
   let prevEnter = false; // previous enter state
@@ -1048,6 +1265,13 @@
 
     invuln = Math.max(0, invuln - dt); // invuln down
     fireCooldown = Math.max(0, fireCooldown - dt); // cooldown down
+    worldTime += dt; // tag-nacht zyklus läuft real über zeit weiter
+    ambientT -= dt;
+    if (ambientT <= 0){
+      ambientT = 4.5 + Math.random()*5.5;
+      if (nightAmount() > 0.55) beep(520 + Math.random()*220, 0.035, "sine", 0.018);
+      else if (Math.random() < 0.45) enemyVoice(Math.random() < 0.5 ? "cow" : "pig");
+    }
 
     if (shakeT > 0){ // shake update
       shakeT -= dt; // time down
@@ -1128,6 +1352,7 @@
   function render(){ // renders one frame
     drawBackground(); // background
     drawWorld(); // world
+    drawDayNightOverlay(); // nachtstimmung
     drawHUD(); // hud
   }
 
