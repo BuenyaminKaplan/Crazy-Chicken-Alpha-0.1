@@ -226,6 +226,7 @@
   let dying = false; // kurze sterbe-animation vor game over
   let deathT = 0; // timer für sterbe-animation
   let deathBeepT = 0; // süßes piepen während sterbe-animation
+  let deathRespawn = false; // nach animation respawnen statt game over
   let pendingTop3 = null; // highscores für danach
 
   let lives = 3; // leben anzahl
@@ -553,7 +554,7 @@
 
   // ---------------- Damage / health ----------------
   function takeDamage(amount=1){ // spieler nimmt schaden
-    if (invuln > 0 || hurtGrace > 0 || paused || gameOver) return; // gold-buff/kurzer trefferschutz/pause -> nix
+    if (invuln > 0 || hurtGrace > 0 || paused || gameOver || dying) return; // gold-buff/kurzer trefferschutz/pause -> nix
     hp -= amount; // hp runter
     hurtFlash = 0.85; // helles aufblinken
     hurtGrace = 0.65; // kurze schadenspause, aber ohne goldeneier kontakt-power
@@ -565,18 +566,7 @@
       lives -= 1; // leben runter
       boom(85, 0.20, 0.16); // boom sound
       addShake(1.2, 0.12); // extra shake
-
-      if (lives <= 0){ // wenn keine leben mehr
-        endRun(); // game over
-      } else { // sonst respawn light
-        hp = MAX_HP; // hp reset
-        player.x = Math.max(startX + 60, player.x - 520); // bisschen zurück
-        player.y = 380; // y reset
-        player.vx = 0; // stop
-        player.vy = 0; // stop
-        hurtFlash = 0.9; // helles respawn blinken
-        hurtGrace = 0.75; // kurzer respawn-schutz
-      }
+      startDeathAnimation(lives > 0); // animation bei jedem sterben
     }
   }
 
@@ -1047,6 +1037,7 @@
     dying = false; // sterbe-animation aus
     deathT = 0; // death timer reset
     deathBeepT = 0; // piep timer reset
+    deathRespawn = false; // respawn animation reset
     pendingTop3 = null; // pending scores reset
     hideMenu(); // overlay weg
 
@@ -1087,18 +1078,22 @@
     resetWorld(); // world neu
   }
 
-  function endRun(){ // game over
-    gameOver = true; // set gameover
+  function startDeathAnimation(respawnAfter){ // läuft bei jedem sterben
+    deathRespawn = respawnAfter;
+    gameOver = !respawnAfter; // nur letzter versuch ist game over
     dying = true; // erst sterbe-animation
     paused = false; // weiter rendern
     deathT = 2.0; // 2 sekunden weinen
     deathBeepT = 0;
+    hp = 0;
     player.vx = 0;
     player.vy = 0;
     player.facing = 1;
-    pendingTop3 = maybeAddHighscore(score); // score speichern
+    if (!respawnAfter) pendingTop3 = maybeAddHighscore(score); // score speichern
     hideMenu();
   }
+
+  function endRun(){ startDeathAnimation(false); } // game over
 
   function finishGameOver(){ // menu nach sterbe-animation
     dying = false;
@@ -1107,6 +1102,21 @@
     showMenu("GAME OVER", `Run beendet.\nNeustart: Enter oder Button.`, true); // overlay
     scoreBox.textContent = // überschreibt box direkt (damit top3 fresh ist)
       `Score: ${Math.floor(score)}\nTop 3 Highscores:\n1) ${top3[0] ?? 0}\n2) ${top3[1] ?? 0}\n3) ${top3[2] ?? 0}`;
+  }
+
+  function finishDeathRespawn(){ // nach sterbe-animation weiter mit leben
+    dying = false;
+    deathRespawn = false;
+    hp = MAX_HP;
+    player.x = Math.max(startX + 60, player.x - 520);
+    player.y = 380;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = false;
+    hurtFlash = 0.9;
+    hurtGrace = 0.75;
+    stompPrimed = false;
+    stompLock = 0;
   }
 
   // ---------------- Rendering ----------------
@@ -1247,26 +1257,67 @@
     const bob = player.onGround ? Math.sin(player.bob)*1.2 : 0; // bobbing wenn läuft
 
     if (dying){ // süße 2s sterbe-animation
-      const cry = Math.sin((2.0 - deathT) * 18) * 1.5;
+      const elapsed = clamp(2.0 - deathT, 0, 2.0);
+      const jump = Math.sin(clamp(elapsed / 1.15, 0, 1) * Math.PI) * 76;
+      const wobble = Math.sin(elapsed * 22) * 2.2;
+      const cry = Math.sin(elapsed * 24) * 2.2;
+      const dx = x + w/2;
+      const dy = y - jump + bob + wobble;
+
+      ctx.fillStyle = "rgba(255,255,255,.22)";
+      ctx.beginPath(); ctx.ellipse(dx, groundY - cam.y + 8, 24*player.scale, 5*player.scale, 0, 0, Math.PI*2); ctx.fill();
+
       ctx.fillStyle = "#ffd34a";
-      ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2 + bob, 18*player.scale, 15*player.scale, 0, 0, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(x+w/2, y+12*player.scale + bob, 14*player.scale, 12*player.scale, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dx, dy+h/2, 18*player.scale, 15*player.scale, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dx, dy+12*player.scale, 15*player.scale, 13*player.scale, 0, 0, Math.PI*2); ctx.fill();
+
+      ctx.strokeStyle = "#f2b529";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(dx - 19*player.scale, dy + 20*player.scale);
+      ctx.lineTo(dx - 30*player.scale, dy + 7*player.scale - cry);
+      ctx.moveTo(dx + 19*player.scale, dy + 20*player.scale);
+      ctx.lineTo(dx + 30*player.scale, dy + 7*player.scale + cry);
+      ctx.stroke();
+
       ctx.fillStyle = "#ff8a2a";
       ctx.beginPath();
-      ctx.moveTo(x+w/2 - 5*player.scale, y+18*player.scale + bob);
-      ctx.lineTo(x+w/2, y+23*player.scale + bob);
-      ctx.lineTo(x+w/2 + 5*player.scale, y+18*player.scale + bob);
+      ctx.moveTo(dx - 6*player.scale, dy+19*player.scale);
+      ctx.lineTo(dx, dy+25*player.scale);
+      ctx.lineTo(dx + 6*player.scale, dy+19*player.scale);
       ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = "#f7f5ff";
+      ctx.beginPath(); ctx.ellipse(dx - 6*player.scale, dy+10*player.scale, 5*player.scale, 6*player.scale, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(dx + 6*player.scale, dy+10*player.scale, 5*player.scale, 6*player.scale, 0, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = "#202020";
-      ctx.beginPath(); ctx.arc(x+w/2 - 5*player.scale, y+10*player.scale + bob, 2.4*player.scale, 0, Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x+w/2 + 5*player.scale, y+10*player.scale + bob, 2.4*player.scale, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(dx - 6*player.scale, dy+11*player.scale, 2.5*player.scale, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(dx + 6*player.scale, dy+11*player.scale, 2.5*player.scale, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#202020";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(dx - 11*player.scale, dy+4*player.scale);
+      ctx.lineTo(dx - 3*player.scale, dy+7*player.scale);
+      ctx.moveTo(dx + 11*player.scale, dy+4*player.scale);
+      ctx.lineTo(dx + 3*player.scale, dy+7*player.scale);
+      ctx.stroke();
+
       ctx.strokeStyle = "#5db7ff";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(x+w/2 - 6*player.scale, y+14*player.scale + bob);
-      ctx.lineTo(x+w/2 - 8*player.scale, y+24*player.scale + bob + cry);
-      ctx.moveTo(x+w/2 + 6*player.scale, y+14*player.scale + bob);
-      ctx.lineTo(x+w/2 + 8*player.scale, y+24*player.scale + bob - cry);
+      ctx.moveTo(dx - 7*player.scale, dy+16*player.scale);
+      ctx.lineTo(dx - 10*player.scale, dy+29*player.scale + cry);
+      ctx.moveTo(dx + 7*player.scale, dy+16*player.scale);
+      ctx.lineTo(dx + 10*player.scale, dy+29*player.scale - cry);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#ff8a2a";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(dx - 7*player.scale, dy+h-2);
+      ctx.lineTo(dx - 13*player.scale, dy+h+8);
+      ctx.moveTo(dx + 7*player.scale, dy+h-2);
+      ctx.lineTo(dx + 13*player.scale, dy+h+8);
       ctx.stroke();
       ctx.lineWidth = 1;
       return;
@@ -1582,7 +1633,6 @@
   let prevEnter = false; // previous enter state
   let prevFire = false; // previous fire state
   let prevDown = false; // previous down state
-  let prevUpRight = false; // combo für stampfer im sprung
 
   function step(t){ // main frame function
     const dt = Math.min(0.02, (t - lastT)/1000); // delta time clamp
@@ -1595,12 +1645,15 @@
       deathT -= dt;
       deathBeepT -= dt;
       if (deathBeepT <= 0){
-        deathBeepT = 0.33;
-        beep(620 + Math.random()*120, 0.055, "triangle", 0.045);
+        deathBeepT = 0.26;
+        beep(720 + Math.random()*170, 0.06, "triangle", 0.052);
       }
       hurtFlash = Math.max(hurtFlash, 0.18);
       render();
-      if (deathT <= 0) finishGameOver();
+      if (deathT <= 0){
+        if (deathRespawn) finishDeathRespawn();
+        else finishGameOver();
+      }
       requestAnimationFrame(step);
       return;
     }
@@ -1632,10 +1685,8 @@
       if (shakeT <= 0){ shakeT = 0; shakePow = 0; } // stop
     }
 
-    const upRightCombo = keys.up && keys.right;
-    if ((keys.down && !prevDown) || (upRightCombo && !prevUpRight && !player.onGround)) doStomp(); // stampfer auf tastendruck/hoch+rechts in luft
+    if (keys.down && !prevDown && !player.onGround) doStomp(); // stampfer nur mit runter im sprung
     prevDown = keys.down;
-    prevUpRight = upRightCombo;
 
     // movement input
     if (stompLock <= 0){
