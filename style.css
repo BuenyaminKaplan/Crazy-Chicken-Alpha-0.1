@@ -32,6 +32,8 @@ canvas {
 
 .menu {
   width: min(640px, calc(100vw - 28px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
   background: rgba(15, 18, 30, .94);
   border: 1px solid rgba(255,255,255,.16);
   border-radius: 8px;
@@ -67,6 +69,7 @@ canvas {
   margin-top: 14px;
   display: grid;
   gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .btn {

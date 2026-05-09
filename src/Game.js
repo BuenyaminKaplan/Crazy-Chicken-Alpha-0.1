@@ -4,6 +4,7 @@ import { addHighscore, addStat, checkAchievements, noteBestScore } from "./Stora
 import { mixHex } from "./Utils.js";
 import { drawGrassClump, drawSoftLight } from "./Art.js";
 import { AudioBus } from "./Audio.js";
+import { AbilitySystem } from "./Abilities.js";
 import { Input } from "./Input.js";
 import { Player } from "./Player.js";
 import { UI } from "./UI.js";
@@ -15,6 +16,7 @@ export class Game {
     this.ctx = canvas.getContext("2d");
     this.audio = new AudioBus();
     this.input = new Input(this.audio);
+    this.abilities = new AbilitySystem();
     this.player = new Player();
     this.world = new World();
     this.ui = new UI(this);
@@ -52,6 +54,7 @@ export class Game {
     this.state = "running";
     this.ui.hide();
     this.player.reset();
+    this.abilities.resetForRun();
     this.world.reset(this.difficulty);
     this.cam.x = 0; this.cam.y = 0;
     this.score = 0; this.startX = this.player.x; this.maxX = this.player.x;
@@ -76,7 +79,8 @@ export class Game {
 
   togglePause(){
     if (this.player.dying) return;
-    if (this.state === "running") this.pause();
+    if (this.state === "running" && this.nearMerchant()) this.openShop();
+    else if (this.state === "running") this.pause();
     else if (this.state === "paused") this.resume();
     else if (this.state === "gameover") this.startRun();
   }
@@ -101,19 +105,33 @@ export class Game {
     this.worldTime += dt;
     const simDt = this.slowMo > 0 ? dt * 0.45 : dt;
     this.slowMo = Math.max(0, this.slowMo - dt);
+    this.abilities.update(dt);
+    if (this.input.pressed("down") && this.player.onGround && !this.nearMerchant()){
+      if (this.abilities.switchNext(this.player)) this.audio.beep(660, 0.045, "triangle", 0.045);
+    }
     this.player.update(this.input, simDt, this.difficulty);
     if (this.player.justJumped){
       this.audio.jump(this.player.featherTimer > 0 ? 1.2 : 1);
       this.player.justJumped = false;
     }
     if (this.input.released("fire")){
+      const active = this.abilities.active();
+      if (active.id !== "fireball" && this.abilities.cast(this, { chargeT:this.player.chargeT / CONFIG.chargeMax })){
+        this.player.charging = false;
+        this.player.chargeT = 0;
+        this.trackProgress("fireballs", 1);
+      } else {
       const f = this.player.makeFireball();
       if (f){
+        f.dmg *= this.abilities.damageMult();
+        f.r += (this.abilities.levels.fireball || 1) * 0.9;
+        this.player.fireCooldown *= this.abilities.cooldownMult();
         this.world.fireballs.push(f);
         this.trackProgress("fireballs", 1);
         this.spawnExplosion(f.x, f.y, f.charged ? 0.7 : 0.3);
         if (f.charged) { this.audio.boom(110, 0.12, 0.12); this.addShake(0.55, 0.08); }
         else this.audio.beep(520, 0.03, "triangle", 0.07);
+      }
       }
     }
 
@@ -170,6 +188,16 @@ export class Game {
     this.ui.showGameOver();
   }
 
+  openShop(){
+    this.state = "paused";
+    this.ui.showShop();
+  }
+
+  nearMerchant(){
+    const c = this.player.center();
+    return this.world.zones.some(z => z.kind === "safe" && aabb(c.x-24,c.y-34,48,68,z.x,z.y,z.w,z.h));
+  }
+
   resolvePlayerCollisions(dt){
     const p = this.player;
     const d = p.dims();
@@ -215,6 +243,7 @@ export class Game {
     }
     if (p.y > 1200) this.applyDamage(1);
     p.x = Math.max(this.startX, p.x);
+    p.hp = Math.min(p.hp, CONFIG.maxHp + this.abilities.maxHpBonus());
   }
 
   applyZones(dt){
@@ -258,8 +287,9 @@ export class Game {
       const dir = Math.random()<0.5 ? -1 : 1;
       this.world.particles.push({ kind:"dust", x:c.x+dir*Math.random()*70, y:CONFIG.groundY-4, vx:dir*(260+Math.random()*760), vy:-120-Math.random()*220, r:4+Math.random()*7, t:0, life:0.28+Math.random()*0.24 });
     }
-    this.world.spawnGroundCracks(c.x, CONFIG.canvas.width*0.31);
-    const radius = CONFIG.canvas.width * 0.31;
+    const stompLevel = this.abilities.stompBonus();
+    this.world.spawnGroundCracks(c.x, CONFIG.canvas.width*(0.31 + stompLevel*0.025));
+    const radius = CONFIG.canvas.width * (0.31 + stompLevel*0.025);
     const rx = c.x - radius;
     for (const e of this.world.enemies){
       if (e.alive && aabb(e.x,e.y,e.w,e.h,rx,0,radius*2,CONFIG.canvas.height)){
@@ -269,7 +299,7 @@ export class Game {
         this.audio.enemy(e.type);
       }
     }
-    this.world.damageBlocks(rx, 0, radius*2, CONFIG.canvas.height, 8, this);
+    this.world.damageBlocks(rx, 0, radius*2, CONFIG.canvas.height, 8 + stompLevel*2, this);
     this.audio.boom(62, 0.18, 0.16);
     this.audio.noise(0.22, 0.12, 460);
     this.addShake(1.9, 0.20);
@@ -280,7 +310,7 @@ export class Game {
     for (const item of this.world.collectibles){
       if (item.got) continue;
       const dx = c.x - item.x, dy = c.y - item.y;
-      if (dx*dx + dy*dy >= (item.r + 24) ** 2) continue;
+      if (dx*dx + dy*dy >= (item.r + 34 + this.abilities.pickupBonus()) ** 2) continue;
       item.got = true;
       this.spawnExplosion(item.x, item.y, item.kind === "goldEgg" ? 1.15 : 0.85);
       p.activatePower(item.kind);
@@ -387,7 +417,7 @@ export class Game {
       this.addShake(0.7, 0.10);
       return;
     }
-    const rad = 90;
+    const rad = f.bomb ? 132 + (this.abilities.levels.eggBomb || 1) * 18 : 90;
     this.world.damageBlocks(f.x-rad, fy-rad, rad*2, rad*2, 2, this);
     for (const e of this.world.enemies){
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,f.x-rad,fy-rad,rad*2,rad*2)) continue;
@@ -397,6 +427,24 @@ export class Game {
       this.addShake(0.25, 0.06);
     }
     this.audio.boom(70, 0.11, 0.10);
+  }
+
+  spawnAbilityBurst(x,y,kind,scale=1){
+    const count = Math.floor(12 * scale);
+    for (let i=0;i<count;i++){
+      const a = Math.random()*Math.PI*2;
+      const sp = 90 + Math.random()*360*scale;
+      this.world.particles.push({
+        kind:kind === "ice" ? "ice" : "spark",
+        x,y,
+        vx:Math.cos(a)*sp,
+        vy:Math.sin(a)*sp,
+        r:2+Math.random()*5,
+        t:0,
+        life:0.18+Math.random()*0.18
+      });
+    }
+    if (kind === "shield") this.world.particles.push({ kind:"ring", x,y, r:24*scale, t:0, life:0.18 });
   }
 
   spawnExplosion(x,y,strength=1){

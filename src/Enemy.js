@@ -22,6 +22,11 @@ export class Enemy {
     this.speed = specs.speed * difficulty.speed;
     this.chaseSpeed = specs.chase * difficulty.speed;
     this.dir = Math.random() < 0.5 ? -1 : 1;
+    this.targetDir = this.dir;
+    this.turnT = 0;
+    this.jumpT = 0;
+    this.jumpCooldown = 0.7 + Math.random()*0.8;
+    this.slowT = 0;
     this.minX = x - 240; this.maxX = x + 240;
     this.alive = true;
     this.hitT = 0;
@@ -45,6 +50,18 @@ export class Enemy {
   update(dt, player, blocks){
     if (!this.alive) return;
     this.hitT = Math.max(0, this.hitT - dt);
+    this.slowT = Math.max(0, this.slowT - dt);
+    this.turnT = Math.max(0, this.turnT - dt);
+    this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
+    if (this.type !== "crow"){
+      if (this.jumpT > 0){
+        this.jumpT = Math.max(0, this.jumpT - dt);
+        const p = 1 - this.jumpT / 0.42;
+        this.y = this.baseY - Math.sin(p * Math.PI) * (this.type === "rooster" ? 54 : 38);
+      } else {
+        this.y = this.baseY;
+      }
+    }
     this.knockVX *= 0.88;
     this.x += this.knockVX * dt;
 
@@ -52,11 +69,13 @@ export class Enemy {
     const ex = this.x + this.w/2;
     const dist = Math.abs(px - ex);
     this.aggro = dist < 560 ? true : (dist > 760 ? false : this.aggro);
+    const speedMul = this.slowT > 0 ? 0.48 : 1;
 
     if (this.type === "crow"){
-      this.dir = px >= ex ? 1 : -1;
-      this.x += (this.aggro ? this.chaseSpeed : this.speed) * this.dir * dt;
-      this.y = this.baseY + Math.sin(performance.now()/300 + this.phase) * 34;
+      this.chooseDirection(px >= ex ? 1 : -1, dist < 38 ? 0.42 : 0.20);
+      const landing = !this.aggro && Math.sin(performance.now()/1200 + this.phase) > 0.72;
+      this.x += (this.aggro ? this.chaseSpeed : this.speed) * this.dir * dt * speedMul;
+      this.y = (landing ? CONFIG.groundY - 70 : this.baseY) + Math.sin(performance.now()/300 + this.phase) * (landing ? 6 : 34);
       return;
     }
 
@@ -68,36 +87,54 @@ export class Enemy {
         this.chargeT = this.type === "giantRooster" ? 2.2 : 1.4;
       }
       if (this.warnT > 0){
-        this.dir = px >= ex ? 1 : -1;
+        this.chooseDirection(px >= ex ? 1 : -1, 0.12);
       } else if (this.chargeT > (this.type === "giantRooster" ? 1.45 : 0.78)){
-        this.x += this.chaseSpeed * 1.45 * this.dir * dt;
+        this.x += this.chaseSpeed * 1.45 * this.dir * dt * speedMul;
       } else if (this.aggro) {
-        this.dir = px >= ex ? 1 : -1;
-        this.x += this.speed * 0.45 * this.dir * dt;
+        this.chooseDirection(px >= ex ? 1 : -1, dist < 34 ? 0.35 : 0.18);
+        this.x += this.speed * 0.45 * this.dir * dt * speedMul;
+        if ((this.type === "rooster" || this.type === "giantRooster") && dist < 260 && this.jumpCooldown <= 0){
+          this.jumpT = 0.42;
+          this.jumpCooldown = this.type === "giantRooster" ? 1.9 : 1.25;
+        }
       } else {
-        this.x += this.speed * 0.55 * this.dir * dt;
+        this.x += this.speed * 0.55 * this.dir * dt * speedMul;
       }
     } else if (this.type === "fox"){
       const targetEgg = player.eggPower > 0;
-      this.dir = px >= ex ? 1 : -1;
-      this.x += (this.aggro || targetEgg ? this.chaseSpeed : this.speed) * this.dir * dt;
+      this.chooseDirection(px >= ex ? 1 : -1, dist < 42 ? 0.38 : 0.16);
+      this.x += (this.aggro || targetEgg ? this.chaseSpeed : this.speed) * this.dir * dt * speedMul;
     } else {
       if (this.aggro){
-        this.dir = px >= ex ? 1 : -1;
-        this.x += this.chaseSpeed * this.dir * dt;
+        this.chooseDirection(px >= ex ? 1 : -1, dist < 40 ? 0.38 : 0.18);
+        const ram = this.type === "pig" && dist < 330 ? 1.22 : 1;
+        this.x += this.chaseSpeed * this.dir * dt * speedMul * ram;
       } else {
-        this.x += this.speed * this.dir * dt;
-        if (this.x < this.minX) this.dir = 1;
-        if (this.x > this.maxX) this.dir = -1;
+        this.x += this.speed * this.dir * dt * speedMul;
+        if (this.x < this.minX) this.chooseDirection(1, 0.12);
+        if (this.x > this.maxX) this.chooseDirection(-1, 0.12);
       }
     }
 
     for (const b of blocks){
       if (!aabb(this.x, this.y, this.w, this.h, b.x, b.y, b.w, b.h)) continue;
+      if (this.jumpCooldown <= 0 && this.type !== "giantRooster"){
+        this.jumpT = 0.42;
+        this.jumpCooldown = 1.15 + Math.random()*0.45;
+        continue;
+      }
       if (this.dir > 0) this.x = b.x - this.w;
       else this.x = b.x + b.w;
-      this.dir *= -1;
+      this.chooseDirection(-this.dir, 0.08);
     }
+  }
+
+  chooseDirection(dir, delay=0.18){
+    if (dir === this.dir) return;
+    this.targetDir = dir;
+    if (this.turnT > 0) return;
+    this.dir = dir;
+    this.turnT = delay + Math.random()*0.08;
   }
 
   draw(ctx, cam){

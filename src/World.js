@@ -104,6 +104,8 @@ export class World {
     else if (theme === "field") this.spawnField(baseX+760);
     else if (theme === "night") this.spawnTreeRock(baseX+780);
 
+    if (theme !== "start" && baseX > 1800 && chance(0.24)) this.spawnMarket(baseX + Math.min(len - 360, 860));
+
     this.spawnCollectibleTrail(baseX, len, theme);
     if (theme !== "start") this.spawnEnemies(baseX, len, theme, difficulty);
     if (theme !== "start" && chance(0.22)) this.spawnChallenge(baseX + 620, theme);
@@ -134,6 +136,7 @@ export class World {
     for (let i=0;i<count;i++){
       const x = baseX + 430 + Math.random()*(len-620);
       if (x < 900) continue;
+      if (this.zones.some(z => z.kind === "safe" && x > z.x - 120 && x < z.x + z.w + 120)) continue;
       this.enemies.push(new Enemy(pick(typesByTheme[theme] || ["pig"]), x, difficulty));
     }
   }
@@ -198,6 +201,13 @@ export class World {
     this.decor.push({ kind:"fireflies", x:x-90, y:CONFIG.groundY-180, w:390 });
   }
 
+  spawnMarket(x){
+    this.zones.push({ kind:"safe", x:x-140, y:CONFIG.groundY-140, w:380, h:160, strength:0 });
+    this.decor.push({ kind:"campfire", x:x-68, y:CONFIG.groundY-30 });
+    this.decor.push({ kind:"merchant", x:x+60, y:CONFIG.groundY-92, w:76, h:92 });
+    this.decor.push({ kind:"sign", x:x-118, y:CONFIG.groundY-58, label:"SHOP" });
+  }
+
   cleanup(camX){
     const killX = camX - 2400;
     for (let i=this.blocks.length-1;i>=0;i--) if (this.blocks[i].x + this.blocks[i].w < killX) this.blocks.splice(i,1);
@@ -259,6 +269,7 @@ export class World {
   updateFireballs(dt, game){
     for (let i=this.fireballs.length-1;i>=0;i--){
       const f = this.fireballs[i];
+      if (f.bomb) f.vy += 1050 * dt;
       f.x += f.vx * dt; f.y += f.vy * dt; f.life -= dt;
       let removed = false;
       for (const b of this.blocks){
@@ -274,13 +285,30 @@ export class World {
         if (!e.alive) continue;
         if (!aabb(f.x-f.r,f.y-f.r,f.r*2,f.r*2,e.x,e.y,e.w,e.h)) continue;
         if (f.charged) e.alive = false;
-        else e.damage(f.dmg, f.vx >= 0 ? 1 : -1, 1800);
+        else {
+          e.damage(f.dmg, f.vx >= 0 ? 1 : -1, f.ability === "ice" ? 980 : 1800);
+          if (f.ability === "ice") e.slowT = Math.max(e.slowT || 0, 1.1 + (f.slow || 0));
+          if (f.ability === "lightning") this.chainLightning(e, f, game);
+        }
         game.explodeFireball(f);
         this.fireballs.splice(i,1);
         removed = true;
         break;
       }
       if (!removed && (f.life <= 0 || f.x < game.cam.x-1200 || f.x > game.cam.x+CONFIG.canvas.width+2400)) this.fireballs.splice(i,1);
+    }
+  }
+
+  chainLightning(first, f, game){
+    let jumps = f.chain || 0;
+    let source = first;
+    while (jumps-- > 0){
+      const target = this.enemies.find(e => e.alive && e !== source && Math.abs(e.x - source.x) < 190 && Math.abs(e.y - source.y) < 120);
+      if (!target) break;
+      target.damage(f.dmg * 0.55, target.x > source.x ? 1 : -1, 520);
+      this.particles.push({ kind:"lightning", x:source.x+source.w/2, y:source.y+source.h/2, x2:target.x+target.w/2, y2:target.y+target.h/2, t:0, life:0.12 });
+      if (!target.alive) game.noteKill(target);
+      source = target;
     }
   }
 
@@ -387,6 +415,28 @@ export class World {
           const py = y + Math.sin(worldTime*1.7+i*2)*34;
           drawSoftLight(ctx, px, py, 18, "255,234,120", 0.16 + Math.sin(worldTime*4+i)*0.04);
         }
+      } else if (d.kind === "campfire"){
+        const y = d.y-cam.y;
+        contactShadow(ctx, x, y+30, 34, 0.18);
+        ctx.strokeStyle = OUTLINE; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(x-24,y+23); ctx.lineTo(x+22,y+34); ctx.moveTo(x+24,y+23); ctx.lineTo(x-22,y+34); ctx.stroke(); ctx.lineWidth = 1;
+        const flame = 1 + Math.sin(worldTime*12)*0.08;
+        drawSoftLight(ctx, x, y+3, 70, "255,148,48", 0.20);
+        ctx.fillStyle = "#ff6a22"; ctx.beginPath(); ctx.moveTo(x,y+20); ctx.quadraticCurveTo(x-17,y+1,x-2,y-23*flame); ctx.quadraticCurveTo(x+18,y+2,x,y+20); ctx.fill();
+        ctx.fillStyle = "#ffe26c"; ctx.beginPath(); ctx.moveTo(x+1,y+18); ctx.quadraticCurveTo(x-8,y+5,x+2,y-11*flame); ctx.quadraticCurveTo(x+10,y+4,x+1,y+18); ctx.fill();
+      } else if (d.kind === "merchant"){
+        const y = d.y-cam.y;
+        contactShadow(ctx, x+d.w/2, y+d.h+4, 38, 0.22);
+        ctx.fillStyle = "#2b2432";
+        ctx.beginPath();
+        ctx.moveTo(x+15,y+18); ctx.quadraticCurveTo(x+38,y-10,x+61,y+18);
+        ctx.lineTo(x+72,y+86); ctx.quadraticCurveTo(x+38,y+99,x+5,y+86); ctx.closePath();
+        fillStroke(ctx, "#2b2432", OUTLINE, 3);
+        ctx.fillStyle = "#6f4a32"; ctx.beginPath(); ctx.ellipse(x+58,y+52,18,28,-0.25,0,Math.PI*2); fillStroke(ctx, "#6f4a32", OUTLINE, 2);
+        ctx.fillStyle = "#f1cf87"; ctx.beginPath(); ctx.ellipse(x+38,y+25,18,14,0,0,Math.PI*2); fillStroke(ctx, "#f1cf87", OUTLINE, 2);
+        ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x+31,y+23,2,0,Math.PI*2); ctx.arc(x+45,y+23,2,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#8b1f2d"; ctx.beginPath(); ctx.arc(x+30,y+9,7,0,Math.PI*2); ctx.arc(x+38,y+5,8,0,Math.PI*2); ctx.arc(x+47,y+9,7,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#fff0b8"; ctx.font = "bold 10px system-ui"; ctx.fillText("Kauf?", x+19, y-8);
       } else if (d.kind === "warning"){
         const y = d.y - cam.y;
         ctx.fillStyle = "rgba(255,70,40,.20)";
@@ -441,6 +491,16 @@ export class World {
       } else if (z.kind === "slow"){
         ctx.fillStyle = "rgba(94,65,42,.20)";
         ctx.fillRect(x,y,z.w,z.h);
+      } else if (z.kind === "safe"){
+        const g = ctx.createLinearGradient(x, y, x, y+z.h);
+        g.addColorStop(0, "rgba(255,231,148,.05)");
+        g.addColorStop(1, "rgba(255,231,148,.16)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x,y,z.w,z.h);
+        ctx.strokeStyle = "rgba(255,231,148,.22)";
+        ctx.setLineDash([8,8]);
+        ctx.strokeRect(x,y,z.w,z.h);
+        ctx.setLineDash([]);
       }
     }
   }
@@ -481,6 +541,25 @@ export class World {
 
   drawFireball(ctx,f,cam){
     const x = f.x - cam.x, y = f.y - cam.y;
+    if (f.ability === "ice"){
+      ctx.fillStyle = "rgba(120,220,255,.28)";
+      ctx.beginPath(); ctx.arc(x,y,f.r*2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#b7f5ff"; ctx.beginPath(); ctx.moveTo(x,y-f.r); ctx.lineTo(x+f.r,y); ctx.lineTo(x,y+f.r); ctx.lineTo(x-f.r,y); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#4ba9d4"; ctx.stroke();
+      return;
+    }
+    if (f.ability === "lightning"){
+      ctx.strokeStyle = "rgba(255,250,125,.82)"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x-f.r*1.5,y); ctx.lineTo(x-2,y-f.r); ctx.lineTo(x+3,y+f.r*.2); ctx.lineTo(x+f.r*1.6,y-f.r*.1); ctx.stroke(); ctx.lineWidth = 1;
+      ctx.fillStyle = "rgba(255,246,90,.35)"; ctx.beginPath(); ctx.arc(x,y,f.r*1.7,0,Math.PI*2); ctx.fill();
+      return;
+    }
+    if (f.ability === "eggBomb"){
+      ctx.fillStyle = "rgba(255,240,190,.30)"; ctx.beginPath(); ctx.arc(x,y,f.r*1.6,0,Math.PI*2); ctx.fill();
+      ellipse(ctx, x, y, f.r*.88, f.r*1.12, 0.2, "#fff2d2", "#8f5b1d", 2);
+      ctx.fillStyle = "#ff6a22"; ctx.beginPath(); ctx.arc(x+f.r*.25,y-f.r*.55,3.2,0,Math.PI*2); ctx.fill();
+      return;
+    }
     ctx.fillStyle = f.charged ? "rgba(255,120,40,.40)" : "rgba(255,140,40,.28)";
     ctx.beginPath(); ctx.arc(x,y,f.r*2.2,0,Math.PI*2); ctx.fill();
     ctx.fillStyle = f.charged ? "#ff4a1a" : "#ff7a2a";
@@ -494,6 +573,8 @@ export class World {
     else if (p.kind === "smoke"){ ctx.fillStyle = `rgba(80,80,90,${a*0.50})`; ctx.beginPath(); ctx.arc(x,y,p.r*1.2,0,Math.PI*2); ctx.fill(); }
     else if (p.kind === "dust"){ ctx.fillStyle = `rgba(150,105,66,${a*0.55})`; ctx.beginPath(); ctx.ellipse(x,y,p.r*1.5,p.r,0,0,Math.PI*2); ctx.fill(); }
     else if (p.kind === "flame"){ ctx.fillStyle = `rgba(255,82,18,${a*0.70})`; ctx.beginPath(); ctx.arc(x,y,p.r,0,Math.PI*2); ctx.fill(); ctx.fillStyle = `rgba(255,230,90,${a*0.56})`; ctx.beginPath(); ctx.arc(x,y,p.r*0.48,0,Math.PI*2); ctx.fill(); }
+    else if (p.kind === "ice"){ ctx.fillStyle = `rgba(145,230,255,${a*0.70})`; ctx.beginPath(); ctx.rect(x-p.r*.5,y-p.r*.5,p.r,p.r); ctx.fill(); }
+    else if (p.kind === "lightning"){ ctx.strokeStyle = `rgba(255,250,120,${a})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(p.x2-cam.x,p.y2-cam.y); ctx.stroke(); ctx.lineWidth = 1; }
     else if (p.kind === "ring"){ ctx.strokeStyle = `rgba(255,255,255,${a*0.80})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x,y,p.r,0,Math.PI*2); ctx.stroke(); ctx.lineWidth = 1; }
     else if (p.kind === "shockwave"){ ctx.strokeStyle = `rgba(255,244,190,${a*0.75})`; ctx.lineWidth = 5; ctx.beginPath(); ctx.ellipse(x,y,p.r*2.4,p.r*0.34,0,0,Math.PI*2); ctx.stroke(); ctx.lineWidth = 1; }
   }

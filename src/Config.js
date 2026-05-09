@@ -20,9 +20,10 @@ export const CONFIG = {
     "←/→ laufen",
     "↑ springen",
     "↓ im Sprung = Stampfer",
+    "↓ am Boden = Fähigkeit wechseln",
     "Space tippen = Fireball",
     "Space halten = Screen-Clear",
-    "Enter = Pause"
+    "Enter = Pause / Händler öffnen"
   ].join(" • ")
 };
 

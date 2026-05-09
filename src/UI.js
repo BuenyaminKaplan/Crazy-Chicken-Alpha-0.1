@@ -1,4 +1,5 @@
 import { CONFIG } from "./Config.js";
+import { ABILITIES, UPGRADES } from "./Abilities.js";
 import { checkAchievements, clearHighscores, loadHighscores, loadStats } from "./Storage.js";
 import { nightAmount } from "./World.js";
 
@@ -25,7 +26,9 @@ export class UI {
   }
 
   showPause(){
-    this.show("Pause", CONFIG.controlsText, [
+    const nearShop = this.game.nearMerchant();
+    this.show(nearShop ? "Rastplatz" : "Pause", nearShop ? "Der reisende Chicken-Haendler raschelt mit seiner Tasche. Eier sind hier Waehrung." : CONFIG.controlsText, [
+      ...(nearShop ? [["Chicken-Haendler", () => this.showShop()]] : []),
       ["Weiterspielen", () => this.game.resume()],
       ["Neu starten", () => this.game.startRun()],
       ["Steuerung", () => this.showControls()],
@@ -34,6 +37,38 @@ export class UI {
       ["Zum Startscreen", () => this.game.showStart()]
     ]);
     this.scoreBox.textContent = this.scoreText();
+  }
+
+  showShop(){
+    const p = this.game.player;
+    const rows = [];
+    rows.push(`Eier-Waehrung: ${p.eggPower}`);
+    rows.push("Freischalten und Upgraden macht die Grundfaehigkeiten bewusst wertvoller.");
+    const buttons = [["Zurueck ins Spiel", () => this.game.resume()]];
+
+    for (const a of ABILITIES){
+      const lvl = this.game.abilities.levels[a.id] || 0;
+      if (!this.game.abilities.unlocked.has(a.id)){
+        rows.push(`${a.name} - ${a.cost} Eier: ${a.desc}`);
+        buttons.push([`Kaufen: ${a.name} (${a.cost})`, () => { this.game.abilities.buyAbility(a.id, p); this.game.audio.pickup("goldEgg"); this.showShop(); }]);
+      } else {
+        const cost = 4 + lvl * 5;
+        rows.push(`${a.name} Stufe ${lvl}/${a.maxLevel}: ${a.desc}`);
+        if (lvl < a.maxLevel) buttons.push([`Upgrade: ${a.name} (${cost})`, () => { this.game.abilities.upgradeAbility(a.id, p); this.game.audio.pickup("egg"); this.showShop(); }]);
+      }
+    }
+
+    for (const u of UPGRADES){
+      const lvl = this.game.abilities.upgrades[u.id] || 0;
+      const cost = u.cost + lvl * 4;
+      rows.push(`${u.name} ${lvl}/${u.maxLevel} - ${u.desc}`);
+      if (lvl < u.maxLevel) buttons.push([`Kaufen: ${u.name} (${cost})`, () => { this.game.abilities.buyUpgrade(u.id, p); this.game.audio.pickup("egg"); this.showShop(); }]);
+    }
+    buttons.push(["Heilung kaufen (3)", () => { this.game.abilities.buyHeal(p); this.game.audio.pickup("egg"); this.showShop(); }]);
+    buttons.push(["Leben kaufen (14)", () => { this.game.abilities.buyLife(p); this.game.audio.pickup("goldEgg"); this.showShop(); }]);
+    buttons.push(["Pause-Menue", () => this.showPause()]);
+    this.show("Chicken-Haendler", "„Frische Ware, geheimnisvolle Herkunft. Keine Rueckgabe, nur Gegacker.“", buttons);
+    this.scoreBox.textContent = rows.join("\n");
   }
 
   showGameOver(){
@@ -104,7 +139,8 @@ export class UI {
   drawHUD(ctx){
     const p = this.game.player;
     const n = nightAmount(this.game.worldTime);
-    const hpRatio = Math.max(0, Math.min(1, p.hp / CONFIG.maxHp));
+    const maxHp = CONFIG.maxHp + this.game.abilities.maxHpBonus();
+    const hpRatio = Math.max(0, Math.min(1, p.hp / maxHp));
     let hpColor = "#30c25f";
     if (hpRatio <= 0.25) hpColor = "#e3322b";
     else if (hpRatio <= 0.45) hpColor = "#f07822";
@@ -113,21 +149,26 @@ export class UI {
     const panelColor = n > 0.48 ? "rgba(8,13,28,.56)" : "rgba(255,255,255,.44)";
 
     ctx.save();
-    ctx.fillStyle = panelColor; ctx.fillRect(10, 8, 330, 58);
-    ctx.strokeStyle = n > 0.48 ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.13)"; ctx.strokeRect(10, 8, 330, 58);
+    ctx.fillStyle = panelColor; ctx.fillRect(10, 8, 438, 72);
+    ctx.strokeStyle = n > 0.48 ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.13)"; ctx.strokeRect(10, 8, 438, 72);
     ctx.fillStyle = "rgba(0,0,0,.26)"; ctx.fillRect(18, 33, 136, 14);
     ctx.fillStyle = hpColor; ctx.fillRect(18, 33, 136 * hpRatio, 14);
     ctx.strokeStyle = "rgba(255,255,255,.40)"; ctx.strokeRect(18, 33, 136, 14);
     ctx.fillStyle = textColor;
     ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
     ctx.fillText(`Score ${Math.floor(this.game.score)}  •  Leben ${p.lives}  •  Eier ${p.eggPower}`, 18, 23);
-    ctx.fillText(`HP ${Math.ceil(p.hp)}/${CONFIG.maxHp}`, 162, 45);
+    ctx.fillText(`HP ${Math.ceil(p.hp)}/${maxHp}`, 162, 45);
+    const active = this.game.abilities.active();
+    const cd = this.game.abilities.cooldowns[active.id] || 0;
+    ctx.fillStyle = n > 0.48 ? "rgba(255,244,190,.95)" : "rgba(70,42,16,.82)";
+    ctx.fillText(`Faehigkeit: ${active.name} ${cd > 0 ? `(${cd.toFixed(1)}s)` : ""}`, 238, 45);
     const buffs = [];
     if (p.invuln > 0) buffs.push(`Gold-Ei ${p.invuln.toFixed(1)}s`);
     if (p.flameTimer > 0) buffs.push(`Chili ${p.flameTimer.toFixed(1)}s`);
     if (p.featherTimer > 0) buffs.push(`Feder ${p.featherTimer.toFixed(1)}s`);
     ctx.globalAlpha = 0.88;
-    ctx.fillText(buffs.length ? buffs.join("  •  ") : "Enter Pause  •  ↓ Stampfer im Sprung", 18, 61);
+    const hint = this.game.nearMerchant() ? "Enter: Chicken-Haendler" : "↓ am Boden: Fähigkeit wechseln  •  ↓ im Sprung: Stampfer";
+    ctx.fillText(buffs.length ? buffs.join("  •  ") : hint, 18, 65);
     ctx.restore();
 
     this.drawPopups(ctx);
