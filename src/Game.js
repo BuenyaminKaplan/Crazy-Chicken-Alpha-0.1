@@ -100,6 +100,10 @@ export class Game {
     const simDt = this.slowMo > 0 ? dt * 0.45 : dt;
     this.slowMo = Math.max(0, this.slowMo - dt);
     this.player.update(this.input, simDt, this.difficulty);
+    if (this.player.justJumped){
+      this.audio.jump(this.player.featherTimer > 0 ? 1.2 : 1);
+      this.player.justJumped = false;
+    }
     if (this.input.released("fire")){
       const f = this.player.makeFireball();
       if (f){
@@ -278,9 +282,7 @@ export class Game {
       this.spawnExplosion(item.x, item.y, item.kind === "goldEgg" ? 1.15 : 0.85);
       p.activatePower(item.kind);
       if (item.kind === "egg") this.trackProgress("eggs", 1);
-      this.audio.cluck();
-      if (item.kind === "goldEgg") this.audio.beep(880, 0.08, "triangle", 0.10);
-      if (item.kind === "chili") this.audio.beep(320, 0.06, "sawtooth", 0.08);
+      this.audio.pickup(item.kind);
       this.addShake(0.35, 0.07);
     }
   }
@@ -411,6 +413,7 @@ export class Game {
       this.slowMo = 0.55;
       this.addShake(2.1, 0.22);
       this.player.addPopup("Boss besiegt!", "#ffdf6a");
+      this.audio.boss();
     }
   }
 

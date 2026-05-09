@@ -35,6 +35,7 @@ export class Player {
     this.deathBeepT = 0;
     this.deathRespawn = false;
     this.popups = [];
+    this.justJumped = false;
   }
 
   dims(){ return { w:this.baseW * this.scale, h:this.baseH * this.scale }; }
@@ -146,6 +147,7 @@ export class Player {
     if (input.keys.up && this.onGround && this.stompLock <= 0){
       this.vy = -jump;
       this.onGround = false;
+      this.justJumped = true;
     }
 
     if (input.keys.fire){

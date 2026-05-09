@@ -78,6 +78,24 @@ export class AudioBus {
     }
   }
 
+  jump(power=1){
+    this.beep(470 + Math.random()*80, 0.045, "sine", 0.045 * power);
+    setTimeout(() => this.beep(620 + Math.random()*60, 0.035, "triangle", 0.03 * power), 35);
+  }
+
+  pickup(kind){
+    if (kind === "goldEgg"){ this.beep(880, 0.08, "triangle", 0.10); setTimeout(() => this.beep(1180, 0.05, "sine", 0.05), 80); return; }
+    if (kind === "chili"){ this.beep(320, 0.06, "sawtooth", 0.08); setTimeout(() => this.beep(430, 0.06, "sawtooth", 0.06), 55); return; }
+    if (kind === "feather"){ this.beep(760, 0.05, "sine", 0.055); setTimeout(() => this.beep(980, 0.05, "triangle", 0.04), 60); return; }
+    this.cluck();
+  }
+
+  boss(){
+    this.beep(90, 0.18, "sawtooth", 0.12);
+    setTimeout(() => this.beep(60, 0.22, "sawtooth", 0.10), 110);
+    this.noise(0.28, 0.12, 420);
+  }
+
   material(kind){
     if (!this.ctx || this.ctx.currentTime - this.lastMaterial < 0.035) return;
     this.lastMaterial = this.ctx.currentTime;
