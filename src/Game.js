@@ -5,6 +5,7 @@ import { mixHex } from "./Utils.js";
 import { drawGrassClump, drawSoftLight } from "./Art.js";
 import { AudioBus } from "./Audio.js";
 import { AbilitySystem } from "./Abilities.js";
+import { RenderLayers } from "./RenderAssets.js";
 import { Input } from "./Input.js";
 import { Player } from "./Player.js";
 import { UI } from "./UI.js";
@@ -14,6 +15,7 @@ export class Game {
   constructor(canvas){
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+    this.layers = new RenderLayers(this.ctx);
     this.audio = new AudioBus();
     this.input = new Input(this.audio);
     this.abilities = new AbilitySystem();
@@ -36,6 +38,9 @@ export class Game {
     this.shakePow = 0;
     this.cameraZoom = 1;
     this.hideGrace = 0;
+    this.firePressAbility = "fireball";
+    this.suppressFireRelease = false;
+    this.lastDawnCall = -1;
   }
 
   get difficulty(){ return CONFIG.difficulties[this.difficultyName]; }
@@ -64,6 +69,9 @@ export class Game {
     this.achievements = [];
     this.musicT = 1.2;
     this.hideGrace = 0;
+    this.firePressAbility = "fireball";
+    this.suppressFireRelease = false;
+    this.lastDawnCall = -1;
     addStat("runs", 1);
   }
 
@@ -128,7 +136,17 @@ export class Game {
       return;
     }
     if (this.input.pressed("down") && this.player.onGround && !this.nearMerchant()){
-      if (this.abilities.switchNext(this.player)) this.audio.beep(660, 0.045, "triangle", 0.045);
+      if (this.abilities.switchNext(this.player)){
+        this.player.charging = false;
+        this.player.chargeT = 0;
+        this.suppressFireRelease = this.input.keys.fire;
+        this.firePressAbility = this.abilities.active().id;
+        this.audio.beep(660, 0.045, "triangle", 0.045);
+      }
+    }
+    if (this.input.pressed("fire")){
+      this.firePressAbility = this.abilities.active().id;
+      this.suppressFireRelease = false;
     }
     this.player.update(this.input, simDt, this.difficulty);
     if (this.player.justJumped){
@@ -136,23 +154,32 @@ export class Game {
       this.player.justJumped = false;
     }
     if (this.input.released("fire")){
-      const active = this.abilities.active();
-      if (active.id !== "fireball" && this.abilities.cast(this, { chargeT:this.player.chargeT / CONFIG.chargeMax })){
+      if (this.suppressFireRelease){
+        this.suppressFireRelease = false;
         this.player.charging = false;
         this.player.chargeT = 0;
-        this.trackProgress("fireballs", 1);
+      } else if (this.firePressAbility !== "fireball"){
+        if (this.abilities.cast(this, { chargeT:this.player.chargeT / CONFIG.chargeMax }, this.firePressAbility)){
+          this.trackProgress("fireballs", 1);
+        } else {
+          this.audio.beep(160, 0.035, "square", 0.035);
+        }
+        this.player.charging = false;
+        this.player.chargeT = 0;
       } else {
-      const f = this.player.makeFireball();
-      if (f){
-        f.dmg *= this.abilities.damageMult();
-        f.r += (this.abilities.levels.fireball || 1) * 0.9;
-        this.player.fireCooldown *= this.abilities.cooldownMult();
-        this.world.fireballs.push(f);
-        this.trackProgress("fireballs", 1);
-        this.spawnExplosion(f.x, f.y, f.charged ? 0.7 : 0.3);
-        if (f.charged) { this.audio.boom(110, 0.12, 0.12); this.addShake(0.55, 0.08); }
-        else this.audio.beep(520, 0.03, "triangle", 0.07);
-      }
+        const f = this.player.makeFireball();
+        if (f){
+          f.dmg *= this.abilities.damageMult();
+          f.r = Math.max(5, (f.r + (this.abilities.levels.fireball || 1) * 0.5) * this.abilities.blastMult());
+          f.life *= this.abilities.rangeMult();
+          f.vx *= this.abilities.rangeMult();
+          this.player.fireCooldown *= this.abilities.cooldownMult();
+          this.world.fireballs.push(f);
+          this.trackProgress("fireballs", 1);
+          this.spawnExplosion(f.x, f.y, f.charged ? 0.7 : 0.3);
+          if (f.charged) { this.audio.boom(110, 0.12, 0.12); this.addShake(0.55, 0.08); }
+          else this.audio.beep(520, 0.03, "triangle", 0.07);
+        }
       }
     }
 
@@ -166,6 +193,7 @@ export class Game {
     this.updateEnemyContacts();
     this.updateFlamethrower(simDt);
     this.updateInvulnContact();
+    this.applySafeZoneRules();
     this.world.update(simDt, this);
     this.updateMusic(dt);
     this.updateScore();
@@ -182,11 +210,18 @@ export class Game {
     if (this.musicT > 0) return;
     const night = nightAmount(this.worldTime);
     this.audio.ambient(this.world.weather, night);
+    const cycle = Math.floor(this.worldTime / CONFIG.dayLength);
+    if (night < 0.08 && cycle !== this.lastDawnCall){
+      this.lastDawnCall = cycle;
+      this.audio.cluck();
+      setTimeout(() => this.audio.beep(880, 0.08, "triangle", 0.035), 130);
+    }
     this.musicT = night > 0.55 ? 2.8 : 2.2;
-    const base = night > 0.55 ? 220 : 330;
+    const peaceful = this.nearMerchant();
+    const base = peaceful ? 420 : (night > 0.55 ? 220 : 330);
     const weatherShift = this.world.weather === "rain" ? -30 : (this.world.weather === "wind" ? 45 : 0);
-    this.audio.beep(base + weatherShift, 0.08, "triangle", 0.018);
-    setTimeout(() => this.audio.beep(base * 1.5 + weatherShift, 0.06, "sine", 0.014), 130);
+    this.audio.beep(base + weatherShift, peaceful ? 0.10 : 0.08, "triangle", peaceful ? 0.014 : 0.018);
+    setTimeout(() => this.audio.beep(base * (peaceful ? 1.25 : 1.5) + weatherShift, 0.06, "sine", peaceful ? 0.012 : 0.014), 130);
   }
 
   updateDeath(dt){
@@ -348,6 +383,25 @@ export class Game {
     if (this.world.weather === "wind") p.vx += 35 * dt;
   }
 
+  applySafeZoneRules(){
+    for (const e of this.world.enemies){
+      const cx = e.x + e.w/2, cy = e.y + e.h/2;
+      const zone = this.world.safeZoneAt(cx, cy);
+      if (!zone) continue;
+      e.aggro = false;
+      e.warnT = 0;
+      e.chargeT = Math.max(e.chargeT, 0.4);
+      e.x = cx < zone.x + zone.w/2 ? zone.x - e.w - 8 : zone.x + zone.w + 8;
+      e.dir *= -1;
+    }
+    for (let i=this.world.fireballs.length-1;i>=0;i--){
+      const f = this.world.fireballs[i];
+      if (!this.world.safeZoneAt(f.x, f.y)) continue;
+      this.world.particles.push({ kind:"ring", x:f.x, y:f.y, r:8, t:0, life:0.12 });
+      this.world.fireballs.splice(i, 1);
+    }
+  }
+
   spawnLandingDust(x, y){
     if (Math.random() > 0.25) return;
     for (let i=0;i<6;i++){
@@ -379,8 +433,8 @@ export class Game {
       this.world.particles.push({ kind:"dust", x:c.x+dir*Math.random()*70, y:CONFIG.groundY-4, vx:dir*(260+Math.random()*760), vy:-120-Math.random()*220, r:4+Math.random()*7, t:0, life:0.28+Math.random()*0.24 });
     }
     const stompLevel = this.abilities.stompBonus();
-    this.world.spawnGroundCracks(c.x, CONFIG.canvas.width*(0.31 + stompLevel*0.025));
-    const radius = CONFIG.canvas.width * (0.31 + stompLevel*0.025);
+    this.world.spawnGroundCracks(c.x, CONFIG.canvas.width*(0.20 + stompLevel*0.035));
+    const radius = CONFIG.canvas.width * (0.20 + stompLevel*0.035);
     const rx = c.x - radius;
     for (const e of this.world.enemies){
       if (e.alive && aabb(e.x,e.y,e.w,e.h,rx,0,radius*2,CONFIG.canvas.height)){
@@ -390,7 +444,7 @@ export class Game {
         this.audio.enemy(e.type);
       }
     }
-    this.world.damageBlocks(rx, 0, radius*2, CONFIG.canvas.height, 8 + stompLevel*2, this);
+    this.world.damageBlocks(rx, 0, radius*2, CONFIG.canvas.height, 4 + stompLevel*2, this);
     this.audio.boom(62, 0.18, 0.16);
     this.audio.noise(0.22, 0.12, 460);
     this.addShake(1.9, 0.20);
@@ -519,11 +573,11 @@ export class Game {
       this.addShake(0.7, 0.10);
       return;
     }
-    const rad = f.bomb ? 132 + (this.abilities.levels.eggBomb || 1) * 18 : 90;
-    this.world.damageBlocks(f.x-rad, fy-rad, rad*2, rad*2, 2, this);
+    const rad = (f.bomb ? 82 + (this.abilities.levels.eggBomb || 1) * 14 : 66) * this.abilities.blastMult();
+    this.world.damageBlocks(f.x-rad, fy-rad, rad*2, rad*2, f.bomb ? 2.5 : 1.2, this);
     for (const e of this.world.enemies){
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,f.x-rad,fy-rad,rad*2,rad*2)) continue;
-      e.damage(f.dmg, f.vx >= 0 ? 1 : -1, 1600);
+      e.damage(f.dmg, f.vx >= 0 ? 1 : -1, 360 * this.abilities.knockbackMult());
       if (!e.alive) this.noteKill(e);
       this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 0.8);
       this.addShake(0.25, 0.06);
@@ -732,7 +786,7 @@ export class Game {
   }
 
   render(){
-    this.drawBackground();
+    this.layers.drawLayer("background", () => this.drawBackground());
     let sx=0, sy=0;
     if (this.shakeT > 0){ sx = (Math.random()*2-1)*this.shakePow*5; sy = (Math.random()*2-1)*this.shakePow*5; }
     this.ctx.save();
@@ -743,9 +797,9 @@ export class Game {
       this.ctx.scale(zoom, zoom);
       this.ctx.translate(-CONFIG.canvas.width/2, -CONFIG.canvas.height/2);
     }
-    this.world.draw(this.ctx, this.cam, this.worldTime);
-    this.player.draw(this.ctx, this.cam, this.worldTime);
-    this.drawInteractionHints(this.ctx);
+    this.layers.drawLayer("world", () => this.world.draw(this.ctx, this.cam, this.worldTime));
+    this.layers.drawLayer("actors", () => this.player.draw(this.ctx, this.cam, this.worldTime));
+    this.layers.drawLayer("ui", () => this.drawInteractionHints(this.ctx));
     this.ctx.restore();
     const n = nightAmount(this.worldTime);
     if (n > 0.08){ this.ctx.fillStyle = `rgba(7,12,32,${n*0.34})`; this.ctx.fillRect(0,0,CONFIG.canvas.width,CONFIG.canvas.height); }

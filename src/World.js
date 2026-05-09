@@ -50,6 +50,10 @@ export class World {
     return this.blocks.some(b => aabb(x,y,w,h,b.x,b.y,b.w,b.h));
   }
 
+  safeZoneAt(x, y){
+    return this.zones.find(z => z.kind === "safe" && x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) || null;
+  }
+
   safeCollectible(x, y){
     const ys = [y, CONFIG.groundY-90, CONFIG.groundY-145, CONFIG.groundY-210, CONFIG.groundY-265];
     const xs = [0, -48, 48, -96, 96];
@@ -205,6 +209,9 @@ export class World {
       this.carve(x+4*CONFIG.tile, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
     }
     this.decor.push({ kind:"fireflies", x:x-90, y:CONFIG.groundY-180, w:390 });
+    this.decor.push({ kind:"graveyard", x:x+260, y:CONFIG.groundY-82, w:260 });
+    this.decor.push({ kind:"ghost", x:x+520, y:CONFIG.groundY-178, w:60, h:82 });
+    this.decor.push({ kind:"deadTree", x:x-190, y:CONFIG.groundY-170, w:120, h:170 });
   }
 
   spawnMarket(x){
@@ -294,7 +301,8 @@ export class World {
         if (!aabb(f.x-f.r,f.y-f.r,f.r*2,f.r*2,e.x,e.y,e.w,e.h)) continue;
         if (f.charged) e.alive = false;
         else {
-          e.damage(f.dmg, f.vx >= 0 ? 1 : -1, f.ability === "ice" ? 980 : 1800);
+          const knock = (f.ability === "ice" ? 420 : 360) * (game.abilities?.knockbackMult?.() ?? 0.25);
+          e.damage(f.dmg, f.vx >= 0 ? 1 : -1, knock);
           if (f.ability === "ice") e.slowT = Math.max(e.slowT || 0, 1.1 + (f.slow || 0));
           if (f.ability === "lightning") this.chainLightning(e, f, game);
         }
@@ -365,6 +373,7 @@ export class World {
     for (const p of this.particles) this.drawParticle(ctx, p, cam);
     this.drawZones(ctx, cam);
     this.drawWeather(ctx);
+    if (n > 0.48) this.drawNightAtmosphere(ctx, cam, worldTime, n);
   }
 
   drawDecor(ctx, cam, worldTime=0, layer="front"){
@@ -372,8 +381,8 @@ export class World {
       const worldLocked = ["barn","merchant","campfire","coop","sign","scarecrow","windmill","laundry"].includes(d.kind);
       const x = d.x - cam.x * (worldLocked ? 1 : 0.92);
       if (x < -260 || x > CONFIG.canvas.width+260) continue;
-      if (layer === "back" && !["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;
-      if (layer === "front" && ["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;
+      if (layer === "back" && !["barn","windmill","laundry","fireflies","ghost","deadTree"].includes(d.kind)) continue;
+      if (layer === "front" && ["barn","windmill","laundry","fireflies","ghost","deadTree"].includes(d.kind)) continue;
       if (d.kind === "grass"){
         for (let i=0;i<d.w;i+=20) drawGrassClump(ctx, x+i, d.y-cam.y, worldTime*3+i, 0.9 + (i%3)*0.08, "rgba(35,115,51,.68)");
       } else if (d.kind === "flowers"){
@@ -429,6 +438,27 @@ export class World {
           const py = y + Math.sin(worldTime*1.7+i*2)*34;
           drawSoftLight(ctx, px, py, 18, "255,234,120", 0.16 + Math.sin(worldTime*4+i)*0.04);
         }
+      } else if (d.kind === "graveyard"){
+        const y = d.y-cam.y;
+        for (let i=0;i<4;i++){
+          const gx = x + i*58;
+          roundedRect(ctx, gx, y + (i%2)*8, 34, 58, 12, "#66707d", "rgba(32,34,42,.75)", 2);
+          ctx.strokeStyle = "rgba(210,220,230,.34)";
+          ctx.beginPath(); ctx.moveTo(gx+17,y+15+(i%2)*8); ctx.lineTo(gx+17,y+34+(i%2)*8); ctx.moveTo(gx+9,y+23+(i%2)*8); ctx.lineTo(gx+25,y+23+(i%2)*8); ctx.stroke();
+        }
+      } else if (d.kind === "ghost"){
+        const y = d.y-cam.y + Math.sin(worldTime*2.1+d.x)*8;
+        drawSoftLight(ctx, x+30, y+36, 74, "185,225,255", 0.12);
+        ctx.fillStyle = "rgba(218,238,255,.34)";
+        ctx.beginPath();
+        ctx.moveTo(x+10,y+64); ctx.quadraticCurveTo(x+7,y+15,x+32,y+8); ctx.quadraticCurveTo(x+58,y+15,x+53,y+64);
+        ctx.quadraticCurveTo(x+45,y+55,x+38,y+66); ctx.quadraticCurveTo(x+30,y+54,x+22,y+66); ctx.quadraticCurveTo(x+17,y+56,x+10,y+64);
+        ctx.fill();
+        ctx.fillStyle = "rgba(20,30,52,.38)"; ctx.beginPath(); ctx.arc(x+25,y+31,3,0,Math.PI*2); ctx.arc(x+40,y+31,3,0,Math.PI*2); ctx.fill();
+      } else if (d.kind === "deadTree"){
+        const y = d.y-cam.y;
+        ctx.strokeStyle = "rgba(63,43,35,.82)"; ctx.lineWidth = 9; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x+56,y+165); ctx.lineTo(x+48,y+74); ctx.lineTo(x+28,y+38); ctx.moveTo(x+50,y+92); ctx.lineTo(x+82,y+47); ctx.moveTo(x+49,y+120); ctx.lineTo(x+18,y+92); ctx.stroke(); ctx.lineWidth = 1;
       } else if (d.kind === "campfire"){
         const y = d.y-cam.y;
         contactShadow(ctx, x, y+30, 34, 0.18);
@@ -534,6 +564,24 @@ export class World {
       ctx.strokeStyle = "rgba(255,255,255,.20)";
       for (let i=0;i<12;i++){ const x=(performance.now()/20+i*80)%CONFIG.canvas.width-120; const y=70+i*35; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+120,y+8); ctx.stroke(); }
     }
+  }
+
+  drawNightAtmosphere(ctx, cam, worldTime, n){
+    ctx.save();
+    ctx.fillStyle = `rgba(190,210,230,${0.035*n})`;
+    for (let i=0;i<4;i++){
+      const x = ((worldTime*22 + i*260 - cam.x*0.14) % (CONFIG.canvas.width+360)) - 180;
+      const y = 250 + i*38 + Math.sin(worldTime+i)*10;
+      ctx.beginPath(); ctx.ellipse(x+130, y, 190, 18, 0, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.strokeStyle = `rgba(205,225,255,${0.10*n})`;
+    ctx.lineWidth = 2;
+    for (let i=0;i<9;i++){
+      const x = (i*131 + Math.sin(worldTime*.6+i)*18 - cam.x*.04) % CONFIG.canvas.width;
+      const y = 130 + (i*47)%210;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(x+12,y-18,x+27,y); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawCollectible(ctx,c,cam,time){

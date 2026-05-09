@@ -12,6 +12,8 @@ export class UI {
     this.text = document.getElementById("menuText");
     this.scoreBox = document.getElementById("scoreBox");
     this.opts = document.getElementById("menuOptions");
+    this.shopCategory = "abilities";
+    this.shopSelected = null;
   }
 
   showStart(){
@@ -47,36 +49,132 @@ export class UI {
       "Eier gegen Macht, so laeuft das Geschaeft.",
       "Ein kleiner Preis fuer grosses Gegacker."
     ];
-    const rows = [];
-    rows.push(`Eier-Waehrung: ${p.eggPower}`);
-    rows.push(`Aktive Faehigkeit: ${active.name}`);
-    rows.push("H, Enter oder Escape schliesst den Shop.");
-    rows.push("Freischalten und Upgraden macht die Grundfaehigkeiten bewusst wertvoller.");
-    const buttons = [["Zurueck ins Spiel", () => this.game.closeShop()]];
+    this.overlay.style.display = "flex";
+    this.menu.className = "menu shopMenu";
+    this.title.textContent = "Chicken-Haendler";
+    this.text.textContent = `„${lines[Math.floor(Math.random()*lines.length)]}“`;
+    this.opts.innerHTML = "";
+    this.scoreBox.className = "scores shopPanel";
+    this.scoreBox.innerHTML = "";
+    this.renderShopPanel(active);
+  }
 
-    for (const a of ABILITIES){
+  shopEntries(){
+    const p = this.game.player;
+    const abilities = ABILITIES.map(a => {
       const lvl = this.game.abilities.levels[a.id] || 0;
-      if (!this.game.abilities.unlocked.has(a.id)){
-        rows.push(`${a.name} - ${a.cost} Eier: ${a.desc}`);
-        buttons.push([`${p.eggPower >= a.cost ? "Kaufen" : "Zu teuer"}: ${a.name} (${a.cost})`, () => this.buyOrComplain(() => this.game.abilities.buyAbility(a.id, p), "goldEgg")]);
-      } else {
-        const cost = 4 + lvl * 5;
-        rows.push(`${a.name} Stufe ${lvl}/${a.maxLevel}: ${a.desc}`);
-        if (lvl < a.maxLevel) buttons.push([`${p.eggPower >= cost ? "Upgrade" : "Zu teuer"}: ${a.name} (${cost})`, () => this.buyOrComplain(() => this.game.abilities.upgradeAbility(a.id, p), "egg")]);
+      const unlocked = this.game.abilities.unlocked.has(a.id);
+      const price = unlocked ? 4 + lvl * 5 : a.cost;
+      const maxed = unlocked && lvl >= a.maxLevel;
+      return {
+        id:a.id,
+        category:"abilities",
+        icon:a.id,
+        name:a.name,
+        level:unlocked ? `Stufe ${lvl}/${a.maxLevel}` : "Neu",
+        price:maxed ? null : price,
+        canBuy:!maxed && p.eggPower >= price,
+        owned:unlocked,
+        desc:a.desc,
+        comment:unlocked ? "Noch ein bisschen Schaerfe, und die Farm merkt es." : "Seltene Ware. Kitzelt im Schnabel.",
+        action:() => unlocked ? this.game.abilities.upgradeAbility(a.id, p) : this.game.abilities.buyAbility(a.id, p),
+        sound:unlocked ? "egg" : "goldEgg"
+      };
+    });
+    const upgrades = UPGRADES.map(u => {
+      const lvl = this.game.abilities.upgrades[u.id] || 0;
+      const price = u.cost + lvl * 4;
+      const maxed = lvl >= u.maxLevel;
+      return {
+        id:u.id,
+        category:"upgrades",
+        icon:"upgrade",
+        name:u.name,
+        level:`Stufe ${lvl}/${u.maxLevel}`,
+        price:maxed ? null : price,
+        canBuy:!maxed && p.eggPower >= price,
+        desc:u.desc,
+        comment:"Kleine Investition, grosses Gegacker.",
+        action:() => this.game.abilities.buyUpgrade(u.id, p),
+        sound:"egg"
+      };
+    });
+    const healing = [
+      { id:"heal", category:"healing", icon:"heal", name:"Warme Suppe", level:"Heilung", price:3, canBuy:p.eggPower >= 3, desc:"Heilt sofort 2 HP.", comment:"Schmeckt nach Lagerfeuer und Mut.", action:() => this.game.abilities.buyHeal(p), sound:"egg" },
+      { id:"life", category:"healing", icon:"life", name:"Extra Leben", level:"Versicherung", price:14, canBuy:p.eggPower >= 14, desc:"Gibt dir einen weiteren Versuch.", comment:"Teuer, aber Huehner fallen dramatisch.", action:() => this.game.abilities.buyLife(p), sound:"goldEgg" }
+    ];
+    const specials = [
+      { id:"active", category:"specials", icon:this.game.abilities.active().id, name:"Aktiv: " + this.game.abilities.active().name, level:"Ausgeruestet", price:null, canBuy:false, desc:"Druecke unten am Boden, um die Faehigkeit zu wechseln.", comment:"Die richtige Ware zur richtigen Zeit." }
+    ];
+    return [...abilities, ...upgrades, ...healing, ...specials];
+  }
+
+  renderShopPanel(active){
+    const p = this.game.player;
+    const categories = [
+      ["abilities", "Faehigkeiten"],
+      ["upgrades", "Upgrades"],
+      ["healing", "Heilung"],
+      ["specials", "Spezial"]
+    ];
+    const entries = this.shopEntries();
+    const visible = entries.filter(e => e.category === this.shopCategory);
+    if (!visible.some(e => e.id === this.shopSelected)) this.shopSelected = visible[0]?.id ?? null;
+    const selected = visible.find(e => e.id === this.shopSelected) || visible[0];
+
+    const wrap = document.createElement("div");
+    wrap.className = "shopGrid";
+    const top = document.createElement("div");
+    top.className = "shopTop";
+    top.innerHTML = `<span class="eggPill">Ei-Waehrung: ${p.eggPower}</span><span>Aktiv: ${active.name}</span><span>H / Enter / Escape schliesst</span>`;
+    wrap.appendChild(top);
+
+    const tabs = document.createElement("div");
+    tabs.className = "shopTabs";
+    for (const [id,label] of categories){
+      const btn = document.createElement("button");
+      btn.className = "shopTab" + (id === this.shopCategory ? " active" : "");
+      btn.textContent = label;
+      btn.onclick = () => { this.shopCategory = id; this.shopSelected = null; this.game.audio.beep(520, 0.025, "triangle", 0.025); this.showShop(); };
+      tabs.appendChild(btn);
+    }
+    wrap.appendChild(tabs);
+
+    const list = document.createElement("div");
+    list.className = "shopList";
+    for (const e of visible){
+      const row = document.createElement("button");
+      row.className = "shopItem" + (selected && e.id === selected.id ? " selected" : "") + (e.price !== null && !e.canBuy ? " locked" : "");
+      row.innerHTML = `<span class="shopIcon">${e.icon === "fireball" ? "F" : e.icon === "ice" ? "I" : e.icon === "lightning" ? "B" : e.icon === "eggBomb" ? "E" : e.icon === "shield" ? "S" : e.icon === "heal" ? "+" : e.icon === "life" ? "♥" : "↑"}</span><span><strong>${e.name}</strong><small>${e.level}</small></span><span class="price">${e.price === null ? "MAX" : e.price + " Ei"}</span>`;
+      row.onclick = () => { this.shopSelected = e.id; this.game.audio.beep(460, 0.02, "sine", 0.020); this.showShop(); };
+      list.appendChild(row);
+    }
+
+    const detail = document.createElement("div");
+    detail.className = "shopDetail";
+    if (selected){
+      detail.innerHTML = `<div class="bigIcon">${selected.name[0]}</div><h2>${selected.name}</h2><p class="level">${selected.level}</p><p>${selected.desc}</p><blockquote>${selected.comment}</blockquote><p class="cost">${selected.price === null ? "Bereits maximiert" : "Preis: " + selected.price + " Eier"}</p>`;
+      if (selected.price !== null){
+        const buy = document.createElement("button");
+        buy.className = "btn primaryBuy";
+        buy.textContent = selected.canBuy ? "Kaufen / verbessern" : "Nicht genug Eier";
+        buy.onclick = () => this.buyOrComplain(() => selected.action?.(), selected.sound || "egg");
+        detail.appendChild(buy);
       }
     }
+    const grid = document.createElement("div");
+    grid.className = "shopBody";
+    grid.appendChild(list);
+    grid.appendChild(detail);
+    wrap.appendChild(grid);
 
-    for (const u of UPGRADES){
-      const lvl = this.game.abilities.upgrades[u.id] || 0;
-      const cost = u.cost + lvl * 4;
-      rows.push(`${u.name} ${lvl}/${u.maxLevel} - ${u.desc}`);
-      if (lvl < u.maxLevel) buttons.push([`${p.eggPower >= cost ? "Kaufen" : "Zu teuer"}: ${u.name} (${cost})`, () => this.buyOrComplain(() => this.game.abilities.buyUpgrade(u.id, p), "egg")]);
-    }
-    buttons.push([`${p.eggPower >= 3 ? "Heilung kaufen" : "Zu teuer: Heilung"} (3)`, () => this.buyOrComplain(() => this.game.abilities.buyHeal(p), "egg")]);
-    buttons.push([`${p.eggPower >= 14 ? "Leben kaufen" : "Zu teuer: Leben"} (14)`, () => this.buyOrComplain(() => this.game.abilities.buyLife(p), "goldEgg")]);
-    buttons.push(["Pause-Menue", () => this.showPause()]);
-    this.show("Chicken-Haendler", `„${lines[Math.floor(Math.random()*lines.length)]}“`, buttons);
-    this.scoreBox.textContent = rows.join("\n");
+    const close = document.createElement("button");
+    close.className = "btn shopClose";
+    close.textContent = "Zurueck ins Spiel";
+    close.onclick = () => this.game.closeShop();
+    wrap.appendChild(close);
+
+    this.scoreBox.appendChild(wrap);
   }
 
   buyOrComplain(fn, soundKind){
@@ -136,6 +234,8 @@ export class UI {
 
   show(title, text, buttons){
     this.overlay.style.display = "flex";
+    this.menu.className = "menu";
+    this.scoreBox.className = "scores";
     this.title.textContent = title;
     this.text.textContent = text;
     this.opts.innerHTML = "";

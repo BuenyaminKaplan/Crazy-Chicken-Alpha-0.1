@@ -45,11 +45,14 @@ export const ABILITIES = [
 ];
 
 export const UPGRADES = [
-  { id:"damage", name:"Scharfer Schnabel", desc:"+15% Fahigkeits-Schaden", cost:6, maxLevel:5 },
+  { id:"damage", name:"Scharfer Schnabel", desc:"+12% Fahigkeits-Schaden", cost:6, maxLevel:5 },
   { id:"cooldown", name:"Schnelle Fluegel", desc:"Fahigkeiten laden schneller", cost:7, maxLevel:4 },
   { id:"magnet", name:"Ei-Magnet", desc:"Groessere Pickup-Reichweite", cost:5, maxLevel:5 },
   { id:"heart", name:"Extra Herz", desc:"+1 maximales HP", cost:9, maxLevel:3 },
-  { id:"stomp", name:"Farm-Beben", desc:"Stampfer-Radius und Schaden steigen", cost:8, maxLevel:3 }
+  { id:"stomp", name:"Farm-Beben", desc:"Stampfer-Radius und Schaden steigen", cost:8, maxLevel:3 },
+  { id:"range", name:"Langer Atem", desc:"Projektile fliegen weiter", cost:6, maxLevel:4 },
+  { id:"knockback", name:"Wuchtiger Dotter", desc:"Mehr Trefferreaktion", cost:7, maxLevel:4 },
+  { id:"blast", name:"Knall-Ei", desc:"Explosionen werden groesser", cost:8, maxLevel:3 }
 ];
 
 export class AbilitySystem {
@@ -99,7 +102,7 @@ export class AbilitySystem {
   }
 
   damageMult(){
-    return 1 + (this.upgrades.damage || 0) * 0.15;
+    return 0.72 + (this.upgrades.damage || 0) * 0.12;
   }
 
   cooldownMult(){
@@ -116,6 +119,18 @@ export class AbilitySystem {
 
   stompBonus(){
     return this.upgrades.stomp || 0;
+  }
+
+  rangeMult(){
+    return 0.72 + (this.upgrades.range || 0) * 0.10;
+  }
+
+  knockbackMult(){
+    return 0.20 + (this.upgrades.knockback || 0) * 0.20;
+  }
+
+  blastMult(){
+    return 0.72 + (this.upgrades.blast || 0) * 0.12;
   }
 
   canBuyAbility(id, eggs){
@@ -175,8 +190,9 @@ export class AbilitySystem {
     return true;
   }
 
-  cast(game, chargedFireball){
-    const ability = this.active();
+  cast(game, chargedFireball, abilityId=null){
+    const ability = abilityId ? ABILITIES.find(a => a.id === abilityId) : this.active();
+    if (!ability || !this.unlocked.has(ability.id)) return false;
     const id = ability.id;
     if ((this.cooldowns[id] || 0) > 0) return false;
     if (id === "fireball") return false;
@@ -184,7 +200,7 @@ export class AbilitySystem {
     const p = game.player;
     const d = p.dims();
     const lvl = Math.max(1, this.levels[id] || 1);
-    const dmg = (0.9 + lvl * 0.45) * this.damageMult() * p.damageMult();
+    const dmg = (0.55 + lvl * 0.28) * this.damageMult() * p.damageMult();
     const x = p.x + d.w/2 + p.facing * (d.w * 0.66);
     const y = p.y + d.h * 0.46;
     const cd = this.cooldownMult();
@@ -197,19 +213,19 @@ export class AbilitySystem {
       return true;
     }
 
-    const common = { x, y, vy:0, life:1.05, dmg, charged:false, ability:id };
+    const common = { x, y, vy:0, life:0.82 + lvl * 0.07, dmg, charged:false, ability:id };
     if (id === "ice"){
-      game.world.fireballs.push({ ...common, vx:p.facing * (1500 + lvl * 120), r:13 + lvl * 2, slow:0.45 });
+      game.world.fireballs.push({ ...common, vx:p.facing * (1180 + lvl * 90) * this.rangeMult(), r:11 + lvl * 1.5, slow:0.35 });
       game.spawnAbilityBurst(x, y, "ice", 0.7);
       game.audio.beep(920, 0.05, "sine", 0.06);
       this.cooldowns[id] = (0.42 - lvl * 0.035) * cd;
     } else if (id === "lightning"){
-      game.world.fireballs.push({ ...common, vx:p.facing * (2600 + lvl * 180), r:10 + lvl, chain:1 + lvl });
+      game.world.fireballs.push({ ...common, vx:p.facing * (2050 + lvl * 145) * this.rangeMult(), r:8 + lvl, chain:Math.max(0, lvl - 1) });
       game.spawnAbilityBurst(x, y, "lightning", 0.75);
       game.audio.beep(1180, 0.035, "square", 0.055);
       this.cooldowns[id] = (0.34 - lvl * 0.03) * cd;
     } else if (id === "eggBomb"){
-      game.world.fireballs.push({ ...common, vx:p.facing * 980, vy:-540, r:15 + lvl * 3, life:1.55, bomb:true, dmg:dmg * 1.5 });
+      game.world.fireballs.push({ ...common, vx:p.facing * (520 + lvl * 55) * this.rangeMult(), vy:-430, r:13 + lvl * 2, life:1.12, bomb:true, dmg:dmg * 1.35 });
       game.spawnAbilityBurst(x, y, "eggBomb", 0.8);
       game.audio.beep(360, 0.06, "triangle", 0.07);
       this.cooldowns[id] = (1.45 - lvl * 0.12) * cd;

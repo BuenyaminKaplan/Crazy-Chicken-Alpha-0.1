@@ -41,8 +41,9 @@ export class Enemy {
 
   damage(dmg, dir, knock){
     this.hp -= dmg;
-    this.hitT = 0.14;
-    this.knockVX += dir * knock;
+    this.hitT = this.boss ? 0.10 : 0.16;
+    const weight = this.boss ? 0.18 : (this.type === "cow" || this.type === "bull" ? 0.36 : 0.62);
+    this.knockVX += dir * knock * weight;
     if (this.hp <= 0) this.alive = false;
     return !this.alive;
   }

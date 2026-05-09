@@ -113,8 +113,10 @@ export class AudioBus {
     if (weather === "rain") this.noise(0.45, 0.018, 2400);
     else if (weather === "wind") this.noise(0.34, 0.014, 760);
     else if (night > 0.65) {
-      this.beep(1450 + Math.random()*260, 0.035, "sine", 0.012);
-      setTimeout(() => this.beep(1320 + Math.random()*200, 0.025, "sine", 0.008), 120);
+      this.noise(0.36, 0.010, 520);
+      this.beep(520 + Math.random()*90, 0.09, "sine", 0.010);
+      setTimeout(() => this.beep(260 + Math.random()*70, 0.05, "triangle", 0.009), 170);
+      if (Math.random() < 0.35) setTimeout(() => this.beep(1320 + Math.random()*200, 0.025, "sine", 0.008), 320);
     } else if (Math.random() < 0.28) {
       this.beep(560 + Math.random()*120, 0.025, "triangle", 0.010);
     }
