@@ -41,20 +41,28 @@ export class UI {
 
   showShop(){
     const p = this.game.player;
+    const active = this.game.abilities.active();
+    const lines = [
+      "Frische Ware fuer mutige Kueken.",
+      "Eier gegen Macht, so laeuft das Geschaeft.",
+      "Ein kleiner Preis fuer grosses Gegacker."
+    ];
     const rows = [];
     rows.push(`Eier-Waehrung: ${p.eggPower}`);
+    rows.push(`Aktive Faehigkeit: ${active.name}`);
+    rows.push("Enter/Escape schliesst den Shop.");
     rows.push("Freischalten und Upgraden macht die Grundfaehigkeiten bewusst wertvoller.");
-    const buttons = [["Zurueck ins Spiel", () => this.game.resume()]];
+    const buttons = [["Zurueck ins Spiel", () => this.game.closeShop()]];
 
     for (const a of ABILITIES){
       const lvl = this.game.abilities.levels[a.id] || 0;
       if (!this.game.abilities.unlocked.has(a.id)){
         rows.push(`${a.name} - ${a.cost} Eier: ${a.desc}`);
-        buttons.push([`Kaufen: ${a.name} (${a.cost})`, () => { this.game.abilities.buyAbility(a.id, p); this.game.audio.pickup("goldEgg"); this.showShop(); }]);
+        buttons.push([`${p.eggPower >= a.cost ? "Kaufen" : "Zu teuer"}: ${a.name} (${a.cost})`, () => this.buyOrComplain(() => this.game.abilities.buyAbility(a.id, p), "goldEgg")]);
       } else {
         const cost = 4 + lvl * 5;
         rows.push(`${a.name} Stufe ${lvl}/${a.maxLevel}: ${a.desc}`);
-        if (lvl < a.maxLevel) buttons.push([`Upgrade: ${a.name} (${cost})`, () => { this.game.abilities.upgradeAbility(a.id, p); this.game.audio.pickup("egg"); this.showShop(); }]);
+        if (lvl < a.maxLevel) buttons.push([`${p.eggPower >= cost ? "Upgrade" : "Zu teuer"}: ${a.name} (${cost})`, () => this.buyOrComplain(() => this.game.abilities.upgradeAbility(a.id, p), "egg")]);
       }
     }
 
@@ -62,13 +70,24 @@ export class UI {
       const lvl = this.game.abilities.upgrades[u.id] || 0;
       const cost = u.cost + lvl * 4;
       rows.push(`${u.name} ${lvl}/${u.maxLevel} - ${u.desc}`);
-      if (lvl < u.maxLevel) buttons.push([`Kaufen: ${u.name} (${cost})`, () => { this.game.abilities.buyUpgrade(u.id, p); this.game.audio.pickup("egg"); this.showShop(); }]);
+      if (lvl < u.maxLevel) buttons.push([`${p.eggPower >= cost ? "Kaufen" : "Zu teuer"}: ${u.name} (${cost})`, () => this.buyOrComplain(() => this.game.abilities.buyUpgrade(u.id, p), "egg")]);
     }
-    buttons.push(["Heilung kaufen (3)", () => { this.game.abilities.buyHeal(p); this.game.audio.pickup("egg"); this.showShop(); }]);
-    buttons.push(["Leben kaufen (14)", () => { this.game.abilities.buyLife(p); this.game.audio.pickup("goldEgg"); this.showShop(); }]);
+    buttons.push([`${p.eggPower >= 3 ? "Heilung kaufen" : "Zu teuer: Heilung"} (3)`, () => this.buyOrComplain(() => this.game.abilities.buyHeal(p), "egg")]);
+    buttons.push([`${p.eggPower >= 14 ? "Leben kaufen" : "Zu teuer: Leben"} (14)`, () => this.buyOrComplain(() => this.game.abilities.buyLife(p), "goldEgg")]);
     buttons.push(["Pause-Menue", () => this.showPause()]);
-    this.show("Chicken-Haendler", "„Frische Ware, geheimnisvolle Herkunft. Keine Rueckgabe, nur Gegacker.“", buttons);
+    this.show("Chicken-Haendler", `„${lines[Math.floor(Math.random()*lines.length)]}“`, buttons);
     this.scoreBox.textContent = rows.join("\n");
+  }
+
+  buyOrComplain(fn, soundKind){
+    if (fn()){
+      this.game.audio.pickup(soundKind);
+      this.game.spawnAbilityBurst(this.game.player.center().x, this.game.player.center().y, "shield", 0.7);
+    } else {
+      this.game.player.addPopup("Nicht genug Eier", "#ff8b7a");
+      this.game.audio.beep(130, 0.08, "square", 0.08);
+    }
+    this.showShop();
   }
 
   showGameOver(){
@@ -82,14 +101,14 @@ export class UI {
 
   showControls(){
     this.show("Steuerung", CONFIG.controlsText + "\n\nTouch: Nutze die eingeblendeten Buttons auf kleinen Bildschirmen.", [
-      ["Zurück", () => this.game.state === "running" || this.game.state === "paused" ? this.showPause() : this.showStart()]
+      ["Zurück", () => ["running","hidden","paused","shop"].includes(this.game.state) ? this.showPause() : this.showStart()]
     ]);
     this.scoreBox.textContent = "Tipp: Stampfer funktioniert nur in der Luft mit ↓.";
   }
 
   showHighscores(){
     this.show("Highscores", "Top 3 Distance-Scores", [
-      ["Zurück", () => this.game.state === "running" || this.game.state === "paused" ? this.showPause() : this.showStart()],
+      ["Zurück", () => ["running","hidden","paused","shop"].includes(this.game.state) ? this.showPause() : this.showStart()],
       ["Highscores löschen", () => { clearHighscores(); this.showHighscores(); }]
     ]);
     const hs = loadHighscores();
@@ -111,7 +130,7 @@ export class UI {
 
   toggleSound(){
     this.game.audio.setEnabled(!this.game.audio.enabled);
-    if (this.game.state === "running" || this.game.state === "paused") this.showPause();
+    if (this.game.state === "running" || this.game.state === "hidden" || this.game.state === "paused" || this.game.state === "shop") this.showPause();
     else this.showStart();
   }
 
@@ -167,7 +186,7 @@ export class UI {
     if (p.flameTimer > 0) buffs.push(`Chili ${p.flameTimer.toFixed(1)}s`);
     if (p.featherTimer > 0) buffs.push(`Feder ${p.featherTimer.toFixed(1)}s`);
     ctx.globalAlpha = 0.88;
-    const hint = this.game.nearMerchant() ? "Enter: Chicken-Haendler" : "↓ am Boden: Fähigkeit wechseln  •  ↓ im Sprung: Stampfer";
+    const hint = this.game.nearMerchant() ? "Enter: Chicken-Haendler" : (this.game.nearestHideZone() ? "↑ halten: in Scheune verstecken" : "↓ am Boden: Fähigkeit wechseln  •  ↓ im Sprung: Stampfer");
     ctx.fillText(buffs.length ? buffs.join("  •  ") : hint, 18, 65);
     ctx.restore();
 

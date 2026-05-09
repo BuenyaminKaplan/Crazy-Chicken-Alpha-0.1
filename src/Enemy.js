@@ -47,7 +47,7 @@ export class Enemy {
     return !this.alive;
   }
 
-  update(dt, player, blocks){
+  update(dt, player, blocks, playerHidden=false){
     if (!this.alive) return;
     this.hitT = Math.max(0, this.hitT - dt);
     this.slowT = Math.max(0, this.slowT - dt);
@@ -68,7 +68,13 @@ export class Enemy {
     const px = player.x + player.dims().w/2;
     const ex = this.x + this.w/2;
     const dist = Math.abs(px - ex);
-    this.aggro = dist < 560 ? true : (dist > 760 ? false : this.aggro);
+    if (playerHidden){
+      this.aggro = false;
+      this.warnT = Math.max(0, this.warnT - dt * 4);
+      this.chargeT = Math.max(0, this.chargeT - dt * 3);
+    } else {
+      this.aggro = dist < 560 ? true : (dist > 760 ? false : this.aggro);
+    }
     const speedMul = this.slowT > 0 ? 0.48 : 1;
 
     if (this.type === "crow"){
@@ -193,7 +199,7 @@ export class Enemy {
 
   drawCrow(ctx,x,y){
     const flap = Math.sin(performance.now()/95 + this.phase);
-    ctx.fillStyle = "rgba(0,0,0,.10)"; ctx.beginPath(); ctx.ellipse(x+this.w/2,y+this.h+30,18,4,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.10)"; ctx.beginPath(); ctx.ellipse(x+this.w/2,CONFIG.groundY+5,18,4,0,0,Math.PI*2); ctx.fill();
     ellipse(ctx, x+20, y+16, 17, 12, 0, "#232a37", OUTLINE, 2.2);
     ctx.beginPath(); ctx.ellipse(x+12, y+16, 23, 6, -0.55-flap*.35, 0, Math.PI*2); fillStroke(ctx, "#303b4c", OUTLINE, 2);
     ctx.beginPath(); ctx.ellipse(x+28, y+16, 23, 6, 0.55+flap*.35, 0, Math.PI*2); fillStroke(ctx, "#303b4c", OUTLINE, 2);

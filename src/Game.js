@@ -35,6 +35,7 @@ export class Game {
     this.shakeT = 0;
     this.shakePow = 0;
     this.cameraZoom = 1;
+    this.hideGrace = 0;
   }
 
   get difficulty(){ return CONFIG.difficulties[this.difficultyName]; }
@@ -62,25 +63,34 @@ export class Game {
     this.pendingTop3 = null;
     this.achievements = [];
     this.musicT = 1.2;
+    this.hideGrace = 0;
     addStat("runs", 1);
   }
 
   pause(){
-    if (this.state !== "running") return;
+    if (this.state !== "running" && this.state !== "hidden") return;
     this.state = "paused";
     this.ui.showPause();
   }
 
   resume(){
-    if (this.state !== "paused") return;
+    if (this.state !== "paused" && this.state !== "shop") return;
     this.state = "running";
     this.ui.hide();
+  }
+
+  closeShop(){
+    if (this.state !== "shop") return;
+    this.state = "running";
+    this.ui.hide();
+    this.player.hurtGrace = 0.65;
+    this.audio.beep(360, 0.04, "triangle", 0.035);
   }
 
   togglePause(){
     if (this.player.dying) return;
     if (this.state === "running" && this.nearMerchant()) this.openShop();
-    else if (this.state === "running") this.pause();
+    else if (this.state === "running" || this.state === "hidden") this.pause();
     else if (this.state === "paused") this.resume();
     else if (this.state === "gameover") this.startRun();
   }
@@ -88,9 +98,14 @@ export class Game {
   step(t){
     const dt = Math.min(0.02, (t - this.lastT) / 1000);
     this.lastT = t;
-    if (this.input.pressed("enter")) this.togglePause();
+    const enter = this.input.pressed("enter");
+    const escape = this.input.pressed("escape");
+    if (this.state === "shop" && (enter || escape)) this.closeShop();
+    else if (enter) this.togglePause();
+    else if (escape && this.state === "running") this.pause();
+    else if (escape && this.state === "paused") this.resume();
 
-    if (this.state === "running") this.update(dt);
+    if (this.state === "running" || this.state === "hidden") this.update(dt);
     this.render();
     this.input.snapshot();
     requestAnimationFrame(tt => this.step(tt));
@@ -106,6 +121,11 @@ export class Game {
     const simDt = this.slowMo > 0 ? dt * 0.45 : dt;
     this.slowMo = Math.max(0, this.slowMo - dt);
     this.abilities.update(dt);
+    this.updateHideState(dt);
+    if (this.state === "hidden"){
+      this.updateWhileHidden(dt);
+      return;
+    }
     if (this.input.pressed("down") && this.player.onGround && !this.nearMerchant()){
       if (this.abilities.switchNext(this.player)) this.audio.beep(660, 0.045, "triangle", 0.045);
     }
@@ -136,6 +156,7 @@ export class Game {
     }
 
     this.resolvePlayerCollisions(simDt);
+    this.hideGrace = Math.max(0, this.hideGrace - dt);
     this.applyZones(simDt);
     this.updateCamera(dt);
     this.world.generateTo(this.cam.x + CONFIG.canvas.width + 2400, this.difficulty);
@@ -189,13 +210,82 @@ export class Game {
   }
 
   openShop(){
-    this.state = "paused";
+    this.state = "shop";
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.hurtGrace = 999;
     this.ui.showShop();
   }
 
   nearMerchant(){
     const c = this.player.center();
-    return this.world.zones.some(z => z.kind === "safe" && aabb(c.x-24,c.y-34,48,68,z.x,z.y,z.w,z.h));
+    return Boolean(this.nearestMerchant());
+  }
+
+  nearestMerchant(){
+    const c = this.player.center();
+    let best = null, bestD = Infinity;
+    for (const z of this.world.zones){
+      if (z.kind !== "merchant") continue;
+      const dx = c.x - (z.cx ?? z.x+z.w/2);
+      const dy = c.y - (z.cy ?? z.y+z.h/2);
+      const d = Math.hypot(dx, dy);
+      if (d < (z.radius ?? CONFIG.merchantInteractionRadius) && d < bestD){ best = z; bestD = d; }
+    }
+    return best;
+  }
+
+  nearestHideZone(){
+    const c = this.player.center();
+    let best = null, bestD = Infinity;
+    for (const z of this.world.zones){
+      if (z.kind !== "hide") continue;
+      const cx = z.x + z.w/2, cy = z.y + z.h*0.72;
+      const d = Math.hypot(c.x - cx, c.y - cy);
+      if (d < CONFIG.hideInteractionRadius && d < bestD){ best = z; bestD = d; }
+    }
+    return best;
+  }
+
+  updateHideState(dt){
+    const p = this.player;
+    const zone = this.nearestHideZone();
+    const wantsHide = zone && this.input.keys.up && p.onGround && !p.dying;
+    if (wantsHide){
+      if (this.state !== "hidden"){
+        this.state = "hidden";
+        p.hidden = true;
+        p.invuln = Math.max(p.invuln, 0.2);
+        p.addPopup("Versteckt", "#d7f7ff");
+        this.audio.beep(420, 0.05, "triangle", 0.035);
+      }
+      p.x += ((zone.x + zone.w/2) - (p.x + p.dims().w/2)) * Math.min(1, dt * 8);
+      p.vx = 0; p.vy = 0; p.hurtGrace = Math.max(p.hurtGrace, 0.35);
+      return;
+    }
+    if (this.state === "hidden"){
+      this.state = "running";
+      p.hidden = false;
+      p.hurtGrace = Math.max(p.hurtGrace, 0.9);
+      this.hideGrace = 0.9;
+      p.addPopup("Wieder draussen", "#fff6cf");
+    }
+  }
+
+  updateWhileHidden(dt){
+    const p = this.player;
+    p.updateTimers(dt);
+    p.vx = 0; p.vy = 0;
+    for (const e of this.world.enemies){
+      e.aggro = false;
+      e.warnT = Math.max(0, e.warnT - dt * 3);
+      e.chargeT = Math.max(0, e.chargeT - dt * 2);
+    }
+    this.updateCamera(dt);
+    this.world.generateTo(this.cam.x + CONFIG.canvas.width + 2400, this.difficulty);
+    this.world.cleanup(this.cam.x);
+    this.world.update(dt, this);
+    this.updateMusic(dt);
   }
 
   resolvePlayerCollisions(dt){
@@ -310,7 +400,16 @@ export class Game {
     for (const item of this.world.collectibles){
       if (item.got) continue;
       const dx = c.x - item.x, dy = c.y - item.y;
-      if (dx*dx + dy*dy >= (item.r + 34 + this.abilities.pickupBonus()) ** 2) continue;
+      const pickupR = item.r + 38 + this.abilities.pickupBonus();
+      const magnetR = pickupR + 78;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < magnetR * magnetR){
+        const pull = Math.min(1, 0.10 + this.abilities.pickupBonus()*0.01);
+        item.x += dx * pull;
+        item.y += dy * pull;
+      }
+      const ndx = c.x - item.x, ndy = c.y - item.y;
+      if (ndx*ndx + ndy*ndy >= pickupR ** 2) continue;
       item.got = true;
       this.spawnExplosion(item.x, item.y, item.kind === "goldEgg" ? 1.15 : 0.85);
       p.activatePower(item.kind);
@@ -322,6 +421,7 @@ export class Game {
 
   updateEnemyContacts(){
     const p = this.player;
+    if (p.hidden || this.hideGrace > 0) return;
     const pr = p.rect();
     for (const e of this.world.enemies){
       if (!e.alive) continue;
@@ -359,6 +459,7 @@ export class Game {
   }
 
   applyDamage(amount){
+    if (this.player.hidden || this.state === "shop") return false;
     const died = this.player.takeDamage(amount, this.difficulty);
     if (!died){
       this.spawnExplosion(this.player.center().x, this.player.center().y, 0.8);
@@ -589,6 +690,46 @@ export class Game {
     return { x:CONFIG.canvas.width*0.5 + Math.cos(a)*radius, y:yBase + Math.sin(a)*radius };
   }
 
+  drawInteractionHints(ctx){
+    if (this.state !== "running" && this.state !== "hidden") return;
+    const merchant = this.nearestMerchant();
+    if (merchant){
+      const pulse = 1 + Math.sin(this.worldTime * 7) * 0.06;
+      const x = (merchant.cx ?? merchant.x + merchant.w/2) - this.cam.x;
+      const y = (merchant.y - 34) - this.cam.y + Math.sin(this.worldTime*5)*3;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = "rgba(20,15,8,.58)";
+      ctx.strokeStyle = "rgba(255,226,138,.82)";
+      ctx.lineWidth = 2;
+      roundHint(ctx, -64, -18, 128, 36);
+      ctx.fillStyle = "#fff1b8";
+      ctx.font = "bold 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Enter: Handeln", 0, 5);
+      ctx.fillStyle = "#ffd84e";
+      ctx.beginPath(); ctx.ellipse(-48, 1, 7, 9, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    const hide = this.nearestHideZone();
+    if (hide){
+      const x = (hide.promptX ?? hide.x + hide.w/2) - this.cam.x;
+      const y = (hide.promptY ?? hide.y - 22) - this.cam.y + Math.sin(this.worldTime*5)*2;
+      ctx.save();
+      ctx.fillStyle = this.state === "hidden" ? "rgba(32,58,82,.72)" : "rgba(20,15,8,.58)";
+      ctx.strokeStyle = "rgba(210,240,255,.78)";
+      ctx.lineWidth = 2;
+      roundHint(ctx, x-76, y-18, 152, 36);
+      ctx.fillStyle = "#e9fbff";
+      ctx.font = "bold 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(this.state === "hidden" ? "↑ halten: versteckt" : "↑ halten: Verstecken", x, y+5);
+      ctx.restore();
+    }
+  }
+
   render(){
     this.drawBackground();
     let sx=0, sy=0;
@@ -603,9 +744,26 @@ export class Game {
     }
     this.world.draw(this.ctx, this.cam, this.worldTime);
     this.player.draw(this.ctx, this.cam, this.worldTime);
+    this.drawInteractionHints(this.ctx);
     this.ctx.restore();
     const n = nightAmount(this.worldTime);
     if (n > 0.08){ this.ctx.fillStyle = `rgba(7,12,32,${n*0.34})`; this.ctx.fillRect(0,0,CONFIG.canvas.width,CONFIG.canvas.height); }
-    if (this.state === "running" || this.state === "paused" || this.state === "gameover") this.ui.drawHUD(this.ctx);
+    if (this.state === "running" || this.state === "hidden" || this.state === "paused" || this.state === "shop" || this.state === "gameover") this.ui.drawHUD(this.ctx);
   }
+}
+
+function roundHint(ctx, x, y, w, h){
+  const r = 8;
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.fill();
+  ctx.stroke();
 }

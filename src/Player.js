@@ -37,6 +37,7 @@ export class Player {
     this.deathRespawn = false;
     this.popups = [];
     this.justJumped = false;
+    this.hidden = false;
   }
 
   dims(){ return { w:this.baseW * this.scale, h:this.baseH * this.scale }; }
@@ -109,6 +110,7 @@ export class Player {
     this.loadGrace = 1.5;
     this.stompPrimed = false;
     this.stompLock = 0;
+    this.hidden = false;
   }
 
   updateTimers(dt){
@@ -131,6 +133,13 @@ export class Player {
   update(input, dt, difficulty){
     if (this.dying) return;
     this.updateTimers(dt);
+    if (this.hidden){
+      this.vx = 0;
+      this.vy = 0;
+      this.charging = false;
+      this.chargeT = 0;
+      return;
+    }
 
     const accel = 7840 * difficulty.speed;
     const maxVx = 4160 * difficulty.speed;
@@ -217,6 +226,11 @@ export class Player {
       return;
     }
 
+    if (this.hidden){
+      ctx.save();
+      ctx.globalAlpha = 0.42;
+    }
+
     if (this.invuln > 0){
       ctx.fillStyle = "rgba(255,224,78,.22)";
       ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.78, 0, Math.PI*2); ctx.fill();
@@ -290,6 +304,8 @@ export class Player {
       ctx.lineTo(bx + this.facing*(len+26), by); ctx.lineTo(bx + this.facing*(len*0.82), by+22);
       ctx.closePath(); ctx.fill();
     }
+
+    if (this.hidden) ctx.restore();
   }
 
   drawDeath(ctx, x, y, w, h, bob){

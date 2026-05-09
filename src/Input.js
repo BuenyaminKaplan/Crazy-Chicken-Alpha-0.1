@@ -1,8 +1,8 @@
 export class Input {
   constructor(audio){
     this.audio = audio;
-    this.keys = { left:false, right:false, up:false, down:false, fire:false, enter:false };
-    this.prev = { down:false, fire:false, enter:false };
+    this.keys = { left:false, right:false, up:false, down:false, fire:false, enter:false, escape:false };
+    this.prev = { down:false, fire:false, enter:false, escape:false };
     this.bindKeyboard();
     this.bindTouch();
   }
@@ -15,7 +15,8 @@ export class Input {
       if (e.key === "ArrowDown") this.keys.down = true;
       if (e.key === " ") this.keys.fire = true;
       if (e.key === "Enter") this.keys.enter = true;
-      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Enter"].includes(e.key)){
+      if (e.key === "Escape") this.keys.escape = true;
+      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Enter","Escape"].includes(e.key)){
         this.audio.resume();
         e.preventDefault();
       }
@@ -27,6 +28,7 @@ export class Input {
       if (e.key === "ArrowDown") this.keys.down = false;
       if (e.key === " ") this.keys.fire = false;
       if (e.key === "Enter") this.keys.enter = false;
+      if (e.key === "Escape") this.keys.escape = false;
     });
   }
 
@@ -44,5 +46,5 @@ export class Input {
 
   pressed(key){ return this.keys[key] && !this.prev[key]; }
   released(key){ return !this.keys[key] && this.prev[key]; }
-  snapshot(){ this.prev = { down:this.keys.down, fire:this.keys.fire, enter:this.keys.enter }; }
+  snapshot(){ this.prev = { down:this.keys.down, fire:this.keys.fire, enter:this.keys.enter, escape:this.keys.escape }; }
 }

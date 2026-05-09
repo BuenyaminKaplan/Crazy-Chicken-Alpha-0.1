@@ -11,6 +11,8 @@ export const CONFIG = {
   lives: 3,
   eggMax: 30,
   chargeMax: 1.15,
+  merchantInteractionRadius: 112,
+  hideInteractionRadius: 58,
   difficulties: {
     easy: { label: "Leicht", enemyRate: 0.75, damage: 0.75, speed: 0.88 },
     normal: { label: "Normal", enemyRate: 1, damage: 1, speed: 1 },

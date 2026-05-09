@@ -113,13 +113,17 @@ export class World {
   }
 
   spawnCollectibleTrail(baseX, len, theme){
-    if (Math.random() < 0.66) return;
-    const count = Math.random() < 0.78 ? 1 : 2;
+    if (Math.random() < 0.24) return;
+    const count = 3 + Math.floor(Math.random()*4);
+    const start = baseX + 260 + Math.random()*220;
+    const arc = Math.random() < 0.42;
     for (let i=0;i<count;i++){
-      const ex = baseX + 320 + Math.random()*(len-520);
-      const ey = theme === "barn" ? CONFIG.groundY-170 : (Math.random() < 0.55 ? CONFIG.groundY-90 : CONFIG.groundY-190);
+      const ex = start + i * (70 + Math.random()*28);
+      if (ex > baseX + len - 220) break;
+      const wave = arc ? Math.sin(i/(Math.max(1,count-1))*Math.PI) * 74 : (i%2)*34;
+      const ey = theme === "barn" ? CONFIG.groundY-165-wave : (Math.random() < 0.62 ? CONFIG.groundY-92-wave : CONFIG.groundY-184-wave*0.35);
       const roll = Math.random();
-      const kind = roll < 0.10 ? "goldEgg" : (roll < 0.20 ? "chili" : (roll < 0.25 ? "feather" : "egg"));
+      const kind = roll < 0.07 ? "goldEgg" : (roll < 0.14 ? "chili" : (roll < 0.18 ? "feather" : "egg"));
       this.spawnCollectible(ex, ey, kind);
     }
   }
@@ -171,7 +175,9 @@ export class World {
     if (chance(0.38)) this.decor.push({ kind:"scarecrow", x:x+550, y:CONFIG.groundY-112 });
   }
   spawnBarn(x){
-    this.decor.push({ kind:"barn", x:x+460, y:CONFIG.groundY-150, w:150, h:150 });
+    const barnX = x + 460;
+    this.decor.push({ kind:"barn", x:barnX, y:CONFIG.groundY-150, w:150, h:150 });
+    this.zones.push({ kind:"hide", x:barnX+34, y:CONFIG.groundY-104, w:82, h:116, promptX:barnX+75, promptY:CONFIG.groundY-142 });
     this.decor.push({ kind:"coop", x:x+250, y:CONFIG.groundY-86 });
     this.decor.push({ kind:"laundry", x:x+120, y:CONFIG.groundY-118, w:190 });
     this.addGrid(x, CONFIG.groundY-3*CONFIG.tile, 4, 3, "well", 3);
@@ -203,6 +209,7 @@ export class World {
 
   spawnMarket(x){
     this.zones.push({ kind:"safe", x:x-140, y:CONFIG.groundY-140, w:380, h:160, strength:0 });
+    this.zones.push({ kind:"merchant", x:x+18, y:CONFIG.groundY-130, w:150, h:140, cx:x+98, cy:CONFIG.groundY-70, radius:CONFIG.merchantInteractionRadius });
     this.decor.push({ kind:"campfire", x:x-68, y:CONFIG.groundY-30 });
     this.decor.push({ kind:"merchant", x:x+60, y:CONFIG.groundY-92, w:76, h:92 });
     this.decor.push({ kind:"sign", x:x-118, y:CONFIG.groundY-58, label:"SHOP" });
@@ -220,6 +227,7 @@ export class World {
       if (e.x < killX || (e.got && e.x < camX - 900)) this.collectibles.splice(i,1);
     }
     for (let i=this.decor.length-1;i>=0;i--) if (this.decor[i].x + (this.decor[i].w || 0) < killX) this.decor.splice(i,1);
+    for (let i=this.zones.length-1;i>=0;i--) if (this.zones[i].x + (this.zones[i].w || 0) < killX) this.zones.splice(i,1);
   }
 
   damageBlocks(rx, ry, rw, rh, dmg, game){
@@ -249,7 +257,7 @@ export class World {
 
   update(dt, game){
     this.updateSpecialBlocks(dt);
-    for (const e of this.enemies) e.update(dt, game.player, this.blocks);
+    for (const e of this.enemies) e.update(dt, game.player, this.blocks, game.player.hidden);
     this.updateFireballs(dt, game);
     this.updateParticles(dt);
     for (let i=this.cracks.length-1;i>=0;i--){
@@ -388,6 +396,11 @@ export class World {
         drawWoodGrain(ctx, x+6, y+12, d.w-12, d.h-16, 0.18);
         ctx.fillStyle = "#742522"; ctx.beginPath(); ctx.moveTo(x-16,y+4); ctx.lineTo(x+d.w/2,y-62); ctx.lineTo(x+d.w+16,y+4); ctx.closePath(); ctx.fill(); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 1;
         roundedRect(ctx, x+40,y+72,70,78,6, "#6d3327", "#f1d8b4", 3.5);
+        ctx.fillStyle = "rgba(0,0,0,.26)";
+        ctx.beginPath(); ctx.ellipse(x+75,y+112,28,42,0,0,Math.PI*2); ctx.fill();
+        roundedRect(ctx, x+53,y+78,44,72,8, "#4a2a20", OUTLINE, 2.4);
+        ctx.fillStyle = "rgba(255,202,92,.24)";
+        ctx.fillRect(x+60,y+86,30,20);
         drawSoftLight(ctx, x+d.w-22, y+54, 96, "255,190,96", 0.12);
       } else if (d.kind === "coop"){
         const y = d.y-cam.y;
@@ -501,6 +514,9 @@ export class World {
         ctx.setLineDash([8,8]);
         ctx.strokeRect(x,y,z.w,z.h);
         ctx.setLineDash([]);
+      } else if (z.kind === "hide"){
+        ctx.fillStyle = "rgba(62,38,25,.08)";
+        ctx.fillRect(x,y,z.w,z.h);
       }
     }
   }
