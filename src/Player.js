@@ -1,5 +1,6 @@
 import { CONFIG } from "./Config.js";
 import { clamp, lerp } from "./Utils.js";
+import { OUTLINE, contactShadow, ellipse, fillStroke } from "./Art.js";
 
 export class Player {
   constructor(){
@@ -208,6 +209,8 @@ export class Player {
     const bob = this.onGround ? Math.sin(this.bob)*1.2 : 0;
     const airborneSquash = this.onGround ? 1 : 1 + Math.min(0.16, Math.abs(this.vy) / 9000);
     const eyeBlink = this.onGround && Math.floor(time * 2.4) % 9 === 0;
+    const cx = x + w/2;
+    const cy = y + h/2 + bob;
 
     if (this.dying){
       this.drawDeath(ctx, x, y, w, h, bob);
@@ -228,29 +231,38 @@ export class Player {
       ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.76, 0, Math.PI*2); ctx.fill();
     }
 
-    ctx.strokeStyle = "#8f5b1d"; ctx.lineWidth = 3;
-    ctx.fillStyle = "#ffd34a";
-    ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2 + bob, 16*this.scale/airborneSquash, 14*this.scale*airborneSquash, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(x+w/2 + 6*this.facing*this.scale, y+12*this.scale + bob, 13*this.scale, 12*this.scale, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    contactShadow(ctx, cx, y+h+5, 18*this.scale, 0.18);
+    ctx.strokeStyle = "#d79a27"; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx-8*this.scale, y+4*this.scale+bob);
+    ctx.quadraticCurveTo(cx-2*this.scale, y-7*this.scale+bob, cx+3*this.scale, y+4*this.scale+bob);
+    ctx.quadraticCurveTo(cx+8*this.scale, y-8*this.scale+bob, cx+13*this.scale, y+6*this.scale+bob);
+    ctx.stroke();
+    ellipse(ctx, cx, cy+2*this.scale, 17*this.scale/airborneSquash, 15*this.scale*airborneSquash, 0, "#ffd34a", "#8f5b1d", 3);
+    ellipse(ctx, cx + 7*this.facing*this.scale, y+12*this.scale + bob, 14*this.scale, 12.5*this.scale, 0.05*this.facing, "#ffdc61", "#8f5b1d", 3);
     ctx.fillStyle = "rgba(255,190,40,.95)";
-    ctx.beginPath(); ctx.ellipse(x+w/2 - 4*this.facing*this.scale, y+22*this.scale + bob, 9*this.scale, 6*this.scale, 0.2*this.facing, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx - 5*this.facing*this.scale, y+23*this.scale + bob, 10*this.scale, 6.2*this.scale, 0.25*this.facing, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "rgba(143,91,29,.58)"; ctx.lineWidth = 1.4;
+    for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(cx-10*this.facing*this.scale, y+(20+i*3)*this.scale+bob); ctx.quadraticCurveTo(cx-2*this.facing*this.scale, y+(18+i*2)*this.scale+bob, cx+4*this.facing*this.scale, y+(21+i)*this.scale+bob); ctx.stroke(); }
     ctx.fillStyle = "#ff8a2a";
     ctx.beginPath();
-    ctx.moveTo(x+w/2 + 18*this.facing*this.scale, y+14*this.scale + bob);
-    ctx.lineTo(x+w/2 + 30*this.facing*this.scale, y+18*this.scale + bob);
-    ctx.lineTo(x+w/2 + 18*this.facing*this.scale, y+22*this.scale + bob);
-    ctx.closePath(); ctx.fill();
+    ctx.moveTo(cx + 19*this.facing*this.scale, y+14*this.scale + bob);
+    ctx.lineTo(cx + 32*this.facing*this.scale, y+18*this.scale + bob);
+    ctx.lineTo(cx + 19*this.facing*this.scale, y+22*this.scale + bob);
+    ctx.closePath(); fillStroke(ctx, "#ff8a2a", OUTLINE, 1.8);
     ctx.fillStyle = "#1b1b1b";
     if (eyeBlink){
       ctx.strokeStyle = "#1b1b1b"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x+w/2 + 7*this.facing*this.scale, y+10*this.scale + bob); ctx.lineTo(x+w/2 + 13*this.facing*this.scale, y+10*this.scale + bob); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx + 7*this.facing*this.scale, y+10*this.scale + bob); ctx.lineTo(cx + 13*this.facing*this.scale, y+10*this.scale + bob); ctx.stroke();
     } else {
-      ctx.beginPath(); ctx.arc(x+w/2 + 10*this.facing*this.scale, y+10*this.scale + bob, 2.2*this.scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#fff8e8"; ctx.beginPath(); ctx.arc(cx + 10*this.facing*this.scale, y+10*this.scale + bob, 4.4*this.scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#1b1b1b"; ctx.beginPath(); ctx.arc(cx + 11*this.facing*this.scale, y+10*this.scale + bob, 2.1*this.scale, 0, Math.PI*2); ctx.fill();
     }
     ctx.strokeStyle = "#ff8a2a"; ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(x+w/2 - 6*this.scale, y+h-2 + bob); ctx.lineTo(x+w/2 - 10*this.scale, y+h+6 + bob);
-    ctx.moveTo(x+w/2 + 6*this.scale, y+h-2 + bob); ctx.lineTo(x+w/2 + 10*this.scale, y+h+6 + bob);
+    const step = Math.sin(this.bob) * 3;
+    ctx.moveTo(cx - 6*this.scale, y+h-2 + bob); ctx.lineTo(cx - (10+step)*this.scale, y+h+6 + bob);
+    ctx.moveTo(cx + 6*this.scale, y+h-2 + bob); ctx.lineTo(cx + (10-step)*this.scale, y+h+6 + bob);
     ctx.stroke(); ctx.lineWidth = 1;
 
     if (this.charging){

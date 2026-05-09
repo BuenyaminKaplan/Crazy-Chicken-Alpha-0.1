@@ -2,6 +2,7 @@ import { CONFIG } from "./Config.js";
 import { aabb } from "./Collision.js";
 import { chance, mixHex, pick, rand, smoothstep } from "./Utils.js";
 import { Enemy } from "./Enemy.js";
+import { OUTLINE, contactShadow, drawFlower, drawGrassClump, drawPlankSign, drawSoftLight, drawWoodGrain, ellipse, fillStroke, roundedRect } from "./Art.js";
 
 export class World {
   constructor(){
@@ -162,20 +163,27 @@ export class World {
     this.addGrid(x, CONFIG.groundY-2*CONFIG.tile, 9, 2, "fence", 2);
     for (let i=0;i<9;i+=2) this.addGrid(x+i*CONFIG.tile, CONFIG.groundY-4*CONFIG.tile, 1, 2, "fence", 2);
     this.decor.push({ kind:"grass", x:x-120, y:CONFIG.groundY, w:420 });
+    this.decor.push({ kind:"flowers", x:x-80, y:CONFIG.groundY, w:360 });
+    if (chance(0.55)) this.decor.push({ kind:"sign", x:x+350, y:CONFIG.groundY-58, label:"EIER" });
+    if (chance(0.38)) this.decor.push({ kind:"scarecrow", x:x+550, y:CONFIG.groundY-112 });
   }
   spawnBarn(x){
     this.decor.push({ kind:"barn", x:x+460, y:CONFIG.groundY-150, w:150, h:150 });
+    this.decor.push({ kind:"coop", x:x+250, y:CONFIG.groundY-86 });
+    this.decor.push({ kind:"laundry", x:x+120, y:CONFIG.groundY-118, w:190 });
     this.addGrid(x, CONFIG.groundY-3*CONFIG.tile, 4, 3, "well", 3);
     this.carve(x+CONFIG.tile, CONFIG.groundY-2*CONFIG.tile, 2*CONFIG.tile, CONFIG.tile, "well");
   }
   spawnMud(x){
     this.addGrid(x, CONFIG.groundY-CONFIG.tile, 9, 1, "mud", 1);
     this.addGrid(x+260, CONFIG.groundY-2*CONFIG.tile, 5, 2, "hay", 2);
+    this.decor.push({ kind:"stones", x:x-70, y:CONFIG.groundY, w:540 });
   }
   spawnTractor(x){
     this.addGrid(x, CONFIG.groundY-2*CONFIG.tile, 7, 2, "tractor", 4);
     this.addGrid(x+3*CONFIG.tile, CONFIG.groundY-4*CONFIG.tile, 3, 2, "tractor", 4);
     this.carve(x+4*CONFIG.tile, CONFIG.groundY-4*CONFIG.tile, CONFIG.tile, CONFIG.tile, "tractor");
+    this.decor.push({ kind:"windmill", x:x+390, y:CONFIG.groundY-235 });
   }
   spawnTreeRock(x){
     if (chance(0.5)){
@@ -187,6 +195,7 @@ export class World {
       this.carve(x, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
       this.carve(x+4*CONFIG.tile, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
     }
+    this.decor.push({ kind:"fireflies", x:x-90, y:CONFIG.groundY-180, w:390 });
   }
 
   cleanup(camX){
@@ -298,11 +307,15 @@ export class World {
 
   draw(ctx, cam, worldTime){
     const n = nightAmount(worldTime);
-    this.drawDecor(ctx, cam);
-    ctx.fillStyle = mixHex("#5aa85b", "#3f7447", n);
+    this.drawDecor(ctx, cam, worldTime, "back");
+    const grassGrad = ctx.createLinearGradient(0, CONFIG.groundY-cam.y, 0, CONFIG.canvas.height);
+    grassGrad.addColorStop(0, mixHex("#65b65e", "#3f7447", n));
+    grassGrad.addColorStop(1, mixHex("#3e7e41", "#253b2e", n));
+    ctx.fillStyle = grassGrad;
     ctx.fillRect(-200, CONFIG.groundY-cam.y, CONFIG.canvas.width+400, CONFIG.canvas.height-CONFIG.groundY+200);
     ctx.fillStyle = mixHex("#3f833e", "#315332", n);
     ctx.fillRect(-200, CONFIG.groundY-cam.y, CONFIG.canvas.width+400, 10);
+    this.drawDecor(ctx, cam, worldTime, "front");
 
     for (const c of this.cracks){
       const x = c.x - cam.x, y = c.y - cam.y, a = 1 - c.t/c.life;
@@ -318,18 +331,62 @@ export class World {
     this.drawWeather(ctx);
   }
 
-  drawDecor(ctx, cam){
+  drawDecor(ctx, cam, worldTime=0, layer="front"){
     for (const d of this.decor){
       const x = d.x - cam.x*0.92;
       if (x < -260 || x > CONFIG.canvas.width+260) continue;
+      if (layer === "back" && !["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;
+      if (layer === "front" && ["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;
       if (d.kind === "grass"){
-        ctx.strokeStyle = "rgba(34,112,48,.55)";
-        for (let i=0;i<d.w;i+=14){ ctx.beginPath(); ctx.moveTo(x+i, d.y-cam.y); ctx.lineTo(x+i+4, d.y-cam.y-12-(i%22)); ctx.stroke(); }
+        for (let i=0;i<d.w;i+=20) drawGrassClump(ctx, x+i, d.y-cam.y, worldTime*3+i, 0.9 + (i%3)*0.08, "rgba(35,115,51,.68)");
+      } else if (d.kind === "flowers"){
+        for (let i=18;i<d.w;i+=42) drawFlower(ctx, x+i, d.y-cam.y-2, i%3 ? "#ffd766" : "#f989a5", worldTime*2+i);
+      } else if (d.kind === "stones"){
+        const y = d.y - cam.y;
+        for (let i=0;i<d.w;i+=76) ellipse(ctx, x+i+16, y-8-(i%2)*3, 12+(i%3)*3, 7, -0.1, "#9da4a4", "rgba(64,58,52,.55)", 1.5);
+      } else if (d.kind === "sign"){
+        drawPlankSign(ctx, x, d.y-cam.y, d.label);
+      } else if (d.kind === "scarecrow"){
+        const y = d.y-cam.y;
+        ctx.strokeStyle = OUTLINE; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(x, y+16); ctx.lineTo(x, y+94); ctx.moveTo(x-38, y+38); ctx.lineTo(x+38, y+38); ctx.stroke();
+        ellipse(ctx, x, y+18, 16, 15, 0, "#d9a354", OUTLINE, 2);
+        roundedRect(ctx, x-24, y+40, 48, 34, 8, "#6fb0d5", OUTLINE, 2);
+        ctx.fillStyle = "#d9b84b"; ctx.beginPath(); ctx.moveTo(x-18,y+6); ctx.lineTo(x,y-18); ctx.lineTo(x+22,y+6); ctx.closePath(); ctx.fill(); ctx.stroke();
       } else if (d.kind === "barn"){
         const y = d.y - cam.y;
-        ctx.fillStyle = "#9d2f2f"; ctx.fillRect(x,y,d.w,d.h);
-        ctx.fillStyle = "#6f2222"; ctx.beginPath(); ctx.moveTo(x-12,y); ctx.lineTo(x+d.w/2,y-58); ctx.lineTo(x+d.w+12,y); ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 4; ctx.strokeRect(x+42,y+74,64,76); ctx.lineWidth = 1;
+        contactShadow(ctx, x+d.w/2, y+d.h+6, d.w*0.58, 0.16);
+        roundedRect(ctx, x, y, d.w, d.h, 10, "#a93a35", OUTLINE, 3);
+        drawWoodGrain(ctx, x+6, y+12, d.w-12, d.h-16, 0.18);
+        ctx.fillStyle = "#742522"; ctx.beginPath(); ctx.moveTo(x-16,y+4); ctx.lineTo(x+d.w/2,y-62); ctx.lineTo(x+d.w+16,y+4); ctx.closePath(); ctx.fill(); ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 1;
+        roundedRect(ctx, x+40,y+72,70,78,6, "#6d3327", "#f1d8b4", 3.5);
+        drawSoftLight(ctx, x+d.w-22, y+54, 96, "255,190,96", 0.12);
+      } else if (d.kind === "coop"){
+        const y = d.y-cam.y;
+        roundedRect(ctx, x-44, y+22, 88, 58, 9, "#c87a3e", OUTLINE, 2.6);
+        ctx.fillStyle = "#8f3a2d"; ctx.beginPath(); ctx.moveTo(x-54,y+26); ctx.lineTo(x,y-12); ctx.lineTo(x+54,y+26); ctx.closePath(); ctx.fill(); ctx.strokeStyle=OUTLINE; ctx.lineWidth=2.4; ctx.stroke(); ctx.lineWidth=1;
+        roundedRect(ctx, x-12, y+45, 24, 35, 5, "#5b3023", OUTLINE, 2);
+      } else if (d.kind === "laundry"){
+        const y = d.y-cam.y;
+        ctx.strokeStyle = "rgba(71,50,31,.65)"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x+d.w, y-10); ctx.stroke(); ctx.lineWidth = 1;
+        const colors = ["#fff2d6", "#83c8f2", "#ff9aa4"];
+        for (let i=0;i<3;i++) roundedRect(ctx, x+30+i*44, y-1-i*2+Math.sin(worldTime*3+i)*2, 28, 34, 4, colors[i], OUTLINE, 1.5);
+      } else if (d.kind === "windmill"){
+        const y = d.y-cam.y;
+        roundedRect(ctx, x-22, y+84, 44, 150, 8, "#d8c49a", OUTLINE, 2.4);
+        const r = 50, a = worldTime*1.4;
+        ctx.save(); ctx.translate(x, y+84); ctx.rotate(a);
+        ctx.strokeStyle = "#f2ead4"; ctx.lineWidth = 7;
+        for (let i=0;i<4;i++){ ctx.rotate(Math.PI/2); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r,0); ctx.stroke(); }
+        ctx.restore(); ellipse(ctx, x, y+84, 8, 8, 0, "#b76b39", OUTLINE, 2);
+      } else if (d.kind === "fireflies"){
+        const y = d.y-cam.y;
+        for (let i=0;i<8;i++){
+          const px = x + (i*47 + Math.sin(worldTime+i)*18) % d.w;
+          const py = y + Math.sin(worldTime*1.7+i*2)*34;
+          drawSoftLight(ctx, px, py, 18, "255,234,120", 0.16 + Math.sin(worldTime*4+i)*0.04);
+        }
       } else if (d.kind === "warning"){
         const y = d.y - cam.y;
         ctx.fillStyle = "rgba(255,70,40,.20)";
@@ -345,19 +402,28 @@ export class World {
     const x = b.x - cam.x, y = b.y - cam.y;
     if (x < -200 || x > CONFIG.canvas.width+200) return;
     const colors = { dirt:"#b88a5d", mud:"#74513b", wood:"#8c6a4a", rock:"#8c94a2", treeTrunk:"#7a563a", treeLeaf:"#4ab86a", tractor:"#c73e2d", hay:"#d9b84b", fence:"#9b7148", well:"#b9c2d4", trampoline:"#52c7d8", break:"#d7ad64", moving:"#6fa9de", crate:"#b45335" };
-    ctx.fillStyle = colors[b.kind] || "#888";
+    const fill = colors[b.kind] || "#888";
+    if (!["treeLeaf","rock"].includes(b.kind)) contactShadow(ctx, x+b.w/2, y+b.h+3, b.w*0.42, 0.08);
+    ctx.fillStyle = fill;
     if (b.kind === "rock"){
-      ctx.beginPath(); ctx.moveTo(x+3,y+20); ctx.lineTo(x+7,y+6); ctx.lineTo(x+18,y+3); ctx.lineTo(x+23,y+14); ctx.lineTo(x+19,y+24); ctx.lineTo(x+6,y+24); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+3,y+21); ctx.lineTo(x+8,y+6); ctx.lineTo(x+20,y+2); ctx.lineTo(x+29,y+13); ctx.lineTo(x+22,y+30); ctx.lineTo(x+7,y+31); ctx.closePath(); fillStroke(ctx, fill, "rgba(50,48,46,.58)", 2);
+      ctx.fillStyle = "rgba(255,255,255,.20)"; ctx.beginPath(); ctx.ellipse(x+15,y+11,7,3,-0.35,0,Math.PI*2); ctx.fill();
     } else if (b.kind === "treeLeaf"){
-      ctx.beginPath(); ctx.arc(x+12,y+12,13,0,Math.PI*2); ctx.fill();
+      ellipse(ctx, x+b.w/2, y+b.h/2, b.w*0.55, b.h*0.48, 0, fill, "rgba(39,89,43,.62)", 2);
     } else if (b.kind === "trampoline"){
-      ctx.fillRect(x, y+8, b.w, b.h-8);
+      roundedRect(ctx, x, y+8, b.w, b.h-8, 6, fill, OUTLINE, 2);
       ctx.strokeStyle = "#e9ffff"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x+3,y+8); ctx.lineTo(x+b.w-3,y+8); ctx.stroke(); ctx.lineWidth = 1;
     } else if (b.kind === "crate"){
-      ctx.fillRect(x, y, b.w, b.h);
+      roundedRect(ctx, x, y, b.w, b.h, 4, fill, OUTLINE, 2);
       ctx.strokeStyle = "rgba(60,25,10,.45)"; ctx.beginPath(); ctx.moveTo(x+3,y+3); ctx.lineTo(x+b.w-3,y+b.h-3); ctx.moveTo(x+b.w-3,y+3); ctx.lineTo(x+3,y+b.h-3); ctx.stroke();
+    } else if (b.kind === "tractor"){
+      roundedRect(ctx, x, y, b.w, b.h, 5, fill, OUTLINE, 2);
+      ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.fillRect(x+4,y+4,b.w-8,5);
+    } else if (b.kind === "hay"){
+      roundedRect(ctx, x, y, b.w, b.h, 6, fill, "#7d5d24", 2);
+      ctx.strokeStyle = "rgba(112,83,24,.38)"; for (let i=5;i<b.w;i+=8){ ctx.beginPath(); ctx.moveTo(x+i,y+4); ctx.lineTo(x+i-2,y+b.h-5); ctx.stroke(); }
     } else {
-      ctx.fillRect(x, y, b.w, b.h);
+      roundedRect(ctx, x, y, b.w, b.h, b.kind === "dirt" || b.kind === "mud" ? 3 : 5, fill, "rgba(63,42,25,.62)", 1.6);
       if (["wood","fence","treeTrunk"].includes(b.kind)){
         ctx.strokeStyle = "rgba(70,38,18,.35)"; ctx.beginPath(); ctx.moveTo(x+5,y+2); ctx.lineTo(x+7,y+b.h-2); ctx.moveTo(x+16,y+3); ctx.lineTo(x+14,y+b.h-4); ctx.stroke();
       }

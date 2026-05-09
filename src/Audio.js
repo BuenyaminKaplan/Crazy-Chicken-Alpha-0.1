@@ -4,6 +4,7 @@ export class AudioBus {
     this.master = null;
     this.enabled = true;
     this.lastMaterial = 0;
+    this.lastAmbient = 0;
   }
 
   resume(){
@@ -103,5 +104,19 @@ export class AudioBus {
     if (kind === "rock") { this.noise(0.14, 0.085, 520); this.boom(55, 0.08, 0.055); return; }
     if (kind === "tractor") { this.noise(0.16, 0.08, 780); this.beep(95, 0.06, "sawtooth", 0.045); return; }
     this.noise(0.10, 0.055, 1050);
+  }
+
+  ambient(weather, night){
+    if (!this.enabled || !this.ctx || this.ctx.state !== "running") return;
+    if (this.ctx.currentTime - this.lastAmbient < 1.8) return;
+    this.lastAmbient = this.ctx.currentTime;
+    if (weather === "rain") this.noise(0.45, 0.018, 2400);
+    else if (weather === "wind") this.noise(0.34, 0.014, 760);
+    else if (night > 0.65) {
+      this.beep(1450 + Math.random()*260, 0.035, "sine", 0.012);
+      setTimeout(() => this.beep(1320 + Math.random()*200, 0.025, "sine", 0.008), 120);
+    } else if (Math.random() < 0.28) {
+      this.beep(560 + Math.random()*120, 0.025, "triangle", 0.010);
+    }
   }
 }

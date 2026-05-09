@@ -2,6 +2,7 @@ import { CONFIG } from "./Config.js";
 import { aabb } from "./Collision.js";
 import { addHighscore, addStat, checkAchievements, noteBestScore } from "./Storage.js";
 import { mixHex } from "./Utils.js";
+import { drawGrassClump, drawSoftLight } from "./Art.js";
 import { AudioBus } from "./Audio.js";
 import { Input } from "./Input.js";
 import { Player } from "./Player.js";
@@ -31,6 +32,7 @@ export class Game {
     this.musicT = 1.5;
     this.shakeT = 0;
     this.shakePow = 0;
+    this.cameraZoom = 1;
   }
 
   get difficulty(){ return CONFIG.difficulties[this.difficultyName]; }
@@ -139,6 +141,7 @@ export class Game {
     this.musicT -= dt;
     if (this.musicT > 0) return;
     const night = nightAmount(this.worldTime);
+    this.audio.ambient(this.world.weather, night);
     this.musicT = night > 0.55 ? 2.8 : 2.2;
     const base = night > 0.55 ? 220 : 330;
     const weatherShift = this.world.weather === "rain" ? -30 : (this.world.weather === "wind" ? 45 : 0);
@@ -435,6 +438,9 @@ export class Game {
     const target = Math.max(0, this.player.x - CONFIG.canvas.width*0.35);
     this.cam.x += (target - this.cam.x) * Math.min(1, dt * 7);
     this.cam.y = 0;
+    const bossNear = this.world.enemies.some(e => e.alive && e.boss && Math.abs(e.x - this.player.x) < 760);
+    const targetZoom = bossNear ? 1.055 : (this.slowMo > 0 ? 1.04 : 1);
+    this.cameraZoom += (targetZoom - this.cameraZoom) * Math.min(1, dt * 3.5);
   }
 
   updateScore(){
@@ -458,19 +464,76 @@ export class Game {
     const g = this.ctx.createLinearGradient(0,0,0,CONFIG.canvas.height);
     g.addColorStop(0, skyTop); g.addColorStop(0.62, skyMid); g.addColorStop(1, skyLow);
     this.ctx.fillStyle = g; this.ctx.fillRect(0,0,CONFIG.canvas.width,CONFIG.canvas.height);
+    this.drawCloudLayer(n);
     if (n > 0.2){
       this.ctx.fillStyle = `rgba(255,255,220,${(n-0.2)*0.65})`;
       for (let i=0;i<38;i++) this.ctx.fillRect((i*137 + Math.floor(this.cam.x*0.03)) % CONFIG.canvas.width, 28 + ((i*61)%160), i%5===0 ? 2 : 1, i%5===0 ? 2 : 1);
     }
     const sun = this.skyPoint(t, 440, 398);
+    if (n < 0.6){
+      drawSoftLight(this.ctx, sun.x, sun.y, 190, "255,218,132", 0.20 * (1-n));
+      this.ctx.strokeStyle = `rgba(255,235,170,${0.08*(1-n)})`;
+      this.ctx.lineWidth = 16;
+      for (let i=-2;i<=2;i++){ this.ctx.beginPath(); this.ctx.moveTo(sun.x, sun.y); this.ctx.lineTo(sun.x + i*190, CONFIG.canvas.height); this.ctx.stroke(); }
+      this.ctx.lineWidth = 1;
+    }
     this.ctx.fillStyle = "rgba(255,232,132,.96)"; this.ctx.beginPath(); this.ctx.arc(sun.x,sun.y,42,0,Math.PI*2); this.ctx.fill();
     const moon = this.skyPoint((t+0.5)%1, 440, 398);
     this.ctx.fillStyle = "rgba(240,244,255,.92)"; this.ctx.beginPath(); this.ctx.arc(moon.x,moon.y,34,0,Math.PI*2); this.ctx.fill();
     this.ctx.fillStyle = skyTop; this.ctx.beginPath(); this.ctx.arc(moon.x+12,moon.y-6,30,0,Math.PI*2); this.ctx.fill();
-    this.ctx.fillStyle = mixHex("#74bf75", "#355a57", n);
-    this.ctx.beginPath(); this.ctx.moveTo(0,360); this.ctx.quadraticCurveTo(230,278,485,344); this.ctx.quadraticCurveTo(710,402,980,330); this.ctx.lineTo(CONFIG.canvas.width,390); this.ctx.lineTo(CONFIG.canvas.width,CONFIG.canvas.height); this.ctx.lineTo(0,CONFIG.canvas.height); this.ctx.fill();
-    this.ctx.fillStyle = mixHex("#58aa60", "#2e504c", n);
-    this.ctx.beginPath(); this.ctx.moveTo(0,405); this.ctx.quadraticCurveTo(260,330,520,402); this.ctx.quadraticCurveTo(760,470,980,382); this.ctx.lineTo(CONFIG.canvas.width,CONFIG.canvas.height); this.ctx.lineTo(0,CONFIG.canvas.height); this.ctx.fill();
+    this.drawParallaxHills(n);
+    this.drawForegroundMist(n);
+  }
+
+  drawCloudLayer(n){
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 0.30 - n*0.16;
+    ctx.fillStyle = "#ffffff";
+    for (let i=0;i<6;i++){
+      const x = ((i*210 - this.cam.x*0.06 + this.worldTime*5) % (CONFIG.canvas.width+260)) - 130;
+      const y = 62 + (i%3)*38;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 42, 15, 0, 0, Math.PI*2);
+      ctx.ellipse(x+34, y+3, 52, 18, 0, 0, Math.PI*2);
+      ctx.ellipse(x+76, y, 36, 13, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawParallaxHills(n){
+    const ctx = this.ctx;
+    const far = -((this.cam.x*0.10) % 900);
+    ctx.fillStyle = mixHex("#8ab6a0", "#2d4053", n);
+    for (let off=far-900; off<CONFIG.canvas.width+900; off+=900){
+      ctx.beginPath(); ctx.moveTo(off,385);
+      ctx.quadraticCurveTo(off+220,250,off+460,350);
+      ctx.quadraticCurveTo(off+680,420,off+900,325);
+      ctx.lineTo(off+900,CONFIG.canvas.height); ctx.lineTo(off,CONFIG.canvas.height); ctx.fill();
+    }
+    const mid = -((this.cam.x*0.20) % 760);
+    ctx.fillStyle = mixHex("#74bf75", "#355a57", n);
+    for (let off=mid-760; off<CONFIG.canvas.width+760; off+=760){
+      ctx.beginPath(); ctx.moveTo(off,405);
+      ctx.quadraticCurveTo(off+210,320,off+405,392);
+      ctx.quadraticCurveTo(off+590,464,off+760,378);
+      ctx.lineTo(off+760,CONFIG.canvas.height); ctx.lineTo(off,CONFIG.canvas.height); ctx.fill();
+    }
+    const near = -((this.cam.x*0.34) % 96);
+    for (let x=near-40; x<CONFIG.canvas.width+60; x+=32) drawGrassClump(ctx, x, CONFIG.groundY-42, this.worldTime*2 + x, 1.2, mixHex("#328939", "#1f4739", n));
+  }
+
+  drawForegroundMist(n){
+    const ctx = this.ctx;
+    const fog = this.world.weather === "fog" ? 0.16 : 0.045;
+    ctx.fillStyle = `rgba(235,244,230,${fog + n*0.035})`;
+    for (let i=0;i<3;i++){
+      const x = ((this.worldTime*18 + i*310 - this.cam.x*0.08) % (CONFIG.canvas.width+420)) - 210;
+      ctx.beginPath();
+      ctx.ellipse(x+130, 320+i*55, 220, 22, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
   }
 
   skyPoint(t, radius, yBase){
@@ -484,6 +547,12 @@ export class Game {
     if (this.shakeT > 0){ sx = (Math.random()*2-1)*this.shakePow*5; sy = (Math.random()*2-1)*this.shakePow*5; }
     this.ctx.save();
     this.ctx.translate(sx, sy);
+    const zoom = this.cameraZoom;
+    if (Math.abs(zoom - 1) > 0.001){
+      this.ctx.translate(CONFIG.canvas.width/2, CONFIG.canvas.height/2);
+      this.ctx.scale(zoom, zoom);
+      this.ctx.translate(-CONFIG.canvas.width/2, -CONFIG.canvas.height/2);
+    }
     this.world.draw(this.ctx, this.cam, this.worldTime);
     this.player.draw(this.ctx, this.cam, this.worldTime);
     this.ctx.restore();
