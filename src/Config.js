@@ -25,7 +25,8 @@ export const CONFIG = {
     "↓ am Boden = Fähigkeit wechseln",
     "Space tippen = Fireball",
     "Space halten = Screen-Clear",
-    "Enter = Pause / Händler öffnen"
+    "Enter = Pause",
+    "H beim Händler = Handeln"
   ].join(" • ")
 };
 

@@ -50,7 +50,7 @@ export class UI {
     const rows = [];
     rows.push(`Eier-Waehrung: ${p.eggPower}`);
     rows.push(`Aktive Faehigkeit: ${active.name}`);
-    rows.push("Enter/Escape schliesst den Shop.");
+    rows.push("H, Enter oder Escape schliesst den Shop.");
     rows.push("Freischalten und Upgraden macht die Grundfaehigkeiten bewusst wertvoller.");
     const buttons = [["Zurueck ins Spiel", () => this.game.closeShop()]];
 
@@ -165,29 +165,41 @@ export class UI {
     else if (hpRatio <= 0.45) hpColor = "#f07822";
     else if (hpRatio <= 0.70) hpColor = "#e9ca35";
     const textColor = n > 0.48 ? "rgba(245,250,255,.94)" : "rgba(10,18,18,.76)";
-    const panelColor = n > 0.48 ? "rgba(8,13,28,.56)" : "rgba(255,255,255,.44)";
+    const panelColor = n > 0.48 ? "rgba(8,13,28,.46)" : "rgba(255,255,255,.34)";
 
     ctx.save();
-    ctx.fillStyle = panelColor; ctx.fillRect(10, 8, 438, 72);
-    ctx.strokeStyle = n > 0.48 ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.13)"; ctx.strokeRect(10, 8, 438, 72);
-    ctx.fillStyle = "rgba(0,0,0,.26)"; ctx.fillRect(18, 33, 136, 14);
-    ctx.fillStyle = hpColor; ctx.fillRect(18, 33, 136 * hpRatio, 14);
-    ctx.strokeStyle = "rgba(255,255,255,.40)"; ctx.strokeRect(18, 33, 136, 14);
+    ctx.fillStyle = panelColor;
+    roundHud(ctx, 12, 10, 386, 42, 10);
+    ctx.strokeStyle = n > 0.48 ? "rgba(255,255,255,.18)" : "rgba(0,0,0,.10)";
+    ctx.stroke();
+    ctx.fillStyle = "rgba(0,0,0,.24)";
+    roundHud(ctx, 23, 32, 112, 10, 5);
+    ctx.fillStyle = hpColor;
+    roundHud(ctx, 23, 32, 112 * hpRatio, 10, 5);
     ctx.fillStyle = textColor;
-    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-    ctx.fillText(`Score ${Math.floor(this.game.score)}  •  Leben ${p.lives}  •  Eier ${p.eggPower}`, 18, 23);
-    ctx.fillText(`HP ${Math.ceil(p.hp)}/${maxHp}`, 162, 45);
+    ctx.font = "bold 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(`Score ${Math.floor(this.game.score)}`, 22, 25);
+    ctx.fillText(`x${p.lives}`, 128, 25);
+    ctx.fillStyle = "#fff2bf";
+    ctx.beginPath(); ctx.ellipse(168, 21, 7, 9, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = textColor;
+    ctx.fillText(`${p.eggPower}`, 180, 25);
+    ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(`${Math.ceil(p.hp)}/${maxHp}`, 142, 41);
     const active = this.game.abilities.active();
     const cd = this.game.abilities.cooldowns[active.id] || 0;
     ctx.fillStyle = n > 0.48 ? "rgba(255,244,190,.95)" : "rgba(70,42,16,.82)";
-    ctx.fillText(`Faehigkeit: ${active.name} ${cd > 0 ? `(${cd.toFixed(1)}s)` : ""}`, 238, 45);
+    ctx.font = "bold 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(`${active.name}${cd > 0 ? ` ${cd.toFixed(1)}s` : ""}`, 230, 25);
     const buffs = [];
     if (p.invuln > 0) buffs.push(`Gold-Ei ${p.invuln.toFixed(1)}s`);
     if (p.flameTimer > 0) buffs.push(`Chili ${p.flameTimer.toFixed(1)}s`);
     if (p.featherTimer > 0) buffs.push(`Feder ${p.featherTimer.toFixed(1)}s`);
-    ctx.globalAlpha = 0.88;
-    const hint = this.game.nearMerchant() ? "Enter: Chicken-Haendler" : (this.game.nearestHideZone() ? "↑ halten: in Scheune verstecken" : "↓ am Boden: Fähigkeit wechseln  •  ↓ im Sprung: Stampfer");
-    ctx.fillText(buffs.length ? buffs.join("  •  ") : hint, 18, 65);
+    if (buffs.length){
+      ctx.globalAlpha = 0.88;
+      ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(buffs.join("  •  "), 230, 42);
+    }
     ctx.restore();
 
     this.drawPopups(ctx);
@@ -210,4 +222,19 @@ export class UI {
     ctx.textAlign = "left";
     ctx.restore();
   }
+}
+
+function roundHud(ctx, x, y, w, h, r){
+  const rr = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+rr,y);
+  ctx.lineTo(x+w-rr,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+rr);
+  ctx.lineTo(x+w,y+h-rr);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h);
+  ctx.lineTo(x+rr,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-rr);
+  ctx.lineTo(x,y+rr);
+  ctx.quadraticCurveTo(x,y,x+rr,y);
+  ctx.fill();
 }

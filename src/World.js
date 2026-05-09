@@ -209,7 +209,7 @@ export class World {
 
   spawnMarket(x){
     this.zones.push({ kind:"safe", x:x-140, y:CONFIG.groundY-140, w:380, h:160, strength:0 });
-    this.zones.push({ kind:"merchant", x:x+18, y:CONFIG.groundY-130, w:150, h:140, cx:x+98, cy:CONFIG.groundY-70, radius:CONFIG.merchantInteractionRadius });
+    this.zones.push({ kind:"merchant", x:x+18, y:CONFIG.groundY-130, w:150, h:140, cx:x+98, cy:CONFIG.groundY-70, radius:CONFIG.merchantInteractionRadius, promptX:x+98, promptY:CONFIG.groundY-132 });
     this.decor.push({ kind:"campfire", x:x-68, y:CONFIG.groundY-30 });
     this.decor.push({ kind:"merchant", x:x+60, y:CONFIG.groundY-92, w:76, h:92 });
     this.decor.push({ kind:"sign", x:x-118, y:CONFIG.groundY-58, label:"SHOP" });
@@ -369,7 +369,8 @@ export class World {
 
   drawDecor(ctx, cam, worldTime=0, layer="front"){
     for (const d of this.decor){
-      const x = d.x - cam.x*0.92;
+      const worldLocked = ["barn","merchant","campfire","coop","sign","scarecrow","windmill","laundry"].includes(d.kind);
+      const x = d.x - cam.x * (worldLocked ? 1 : 0.92);
       if (x < -260 || x > CONFIG.canvas.width+260) continue;
       if (layer === "back" && !["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;
       if (layer === "front" && ["barn","windmill","laundry","fireflies"].includes(d.kind)) continue;

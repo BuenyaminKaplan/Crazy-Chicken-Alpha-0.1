@@ -89,8 +89,7 @@ export class Game {
 
   togglePause(){
     if (this.player.dying) return;
-    if (this.state === "running" && this.nearMerchant()) this.openShop();
-    else if (this.state === "running" || this.state === "hidden") this.pause();
+    if (this.state === "running" || this.state === "hidden") this.pause();
     else if (this.state === "paused") this.resume();
     else if (this.state === "gameover") this.startRun();
   }
@@ -100,7 +99,9 @@ export class Game {
     this.lastT = t;
     const enter = this.input.pressed("enter");
     const escape = this.input.pressed("escape");
-    if (this.state === "shop" && (enter || escape)) this.closeShop();
+    const shopKey = this.input.pressed("shop");
+    if (this.state === "shop" && (shopKey || enter || escape)) this.closeShop();
+    else if (shopKey && this.state === "running" && this.nearMerchant()) this.openShop();
     else if (enter) this.togglePause();
     else if (escape && this.state === "running") this.pause();
     else if (escape && this.state === "paused") this.resume();
@@ -695,21 +696,21 @@ export class Game {
     const merchant = this.nearestMerchant();
     if (merchant){
       const pulse = 1 + Math.sin(this.worldTime * 7) * 0.06;
-      const x = (merchant.cx ?? merchant.x + merchant.w/2) - this.cam.x;
-      const y = (merchant.y - 34) - this.cam.y + Math.sin(this.worldTime*5)*3;
+      const x = (merchant.promptX ?? merchant.cx ?? merchant.x + merchant.w/2) - this.cam.x;
+      const y = (merchant.promptY ?? merchant.y - 34) - this.cam.y + Math.sin(this.worldTime*5)*3;
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(pulse, pulse);
       ctx.fillStyle = "rgba(20,15,8,.58)";
       ctx.strokeStyle = "rgba(255,226,138,.82)";
       ctx.lineWidth = 2;
-      roundHint(ctx, -64, -18, 128, 36);
+      roundHint(ctx, -58, -18, 116, 36);
       ctx.fillStyle = "#fff1b8";
       ctx.font = "bold 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.textAlign = "center";
-      ctx.fillText("Enter: Handeln", 0, 5);
+      ctx.fillText("H: Handeln", 4, 5);
       ctx.fillStyle = "#ffd84e";
-      ctx.beginPath(); ctx.ellipse(-48, 1, 7, 9, 0, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-40, 1, 7, 9, 0, 0, Math.PI*2); ctx.fill();
       ctx.restore();
     }
 
