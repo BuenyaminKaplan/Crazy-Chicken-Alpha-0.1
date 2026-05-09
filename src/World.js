@@ -12,6 +12,9 @@ export class World {
     this.particles = [];
     this.cracks = [];
     this.fireballs = [];
+    this.zones = [];
+    this.weather = "clear";
+    this.nextBossX = 4200;
     this.nextGenX = 0;
   }
 
@@ -23,6 +26,9 @@ export class World {
     this.particles.length = 0;
     this.cracks.length = 0;
     this.fireballs.length = 0;
+    this.zones.length = 0;
+    this.weather = "clear";
+    this.nextBossX = 4200;
     this.nextGenX = 0;
     for (let i=0;i<24;i++) this.addBlock(72 + i*CONFIG.tile, CONFIG.groundY-2*CONFIG.tile, CONFIG.tile, CONFIG.tile*2, "dirt", 2);
     this.generateTo(4400, difficulty, true);
@@ -70,6 +76,10 @@ export class World {
       const baseX = this.nextGenX;
       const theme = first && baseX < 1300 ? "start" : this.segmentTheme(segIndex++);
       this.makeSegment(baseX, len, theme, difficulty);
+      if (baseX > this.nextBossX){
+        this.spawnBoss(baseX + 980, difficulty);
+        this.nextBossX += 5200 + Math.random()*2600;
+      }
       this.nextGenX += len;
     }
   }
@@ -95,6 +105,8 @@ export class World {
 
     this.spawnCollectibleTrail(baseX, len, theme);
     if (theme !== "start") this.spawnEnemies(baseX, len, theme, difficulty);
+    if (theme !== "start" && chance(0.22)) this.spawnChallenge(baseX + 620, theme);
+    if (chance(0.12)) this.weather = pick(["rain","fog","wind","clear"]);
   }
 
   spawnCollectibleTrail(baseX, len, theme){
@@ -112,16 +124,37 @@ export class World {
   spawnEnemies(baseX, len, theme, difficulty){
     const count = Math.floor((2 + Math.random()*4) * difficulty.enemyRate);
     const typesByTheme = {
-      field: ["pig","angryChicken","pig"],
-      barn: ["cow","pig","crow"],
-      mud: ["pig","cow"],
-      tractor: ["angryChicken","pig","cow"],
-      night: ["crow","pig","angryChicken"]
+      field: ["pig","angryChicken","pig","rooster"],
+      barn: ["cow","pig","crow","fox"],
+      mud: ["pig","cow","bull"],
+      tractor: ["angryChicken","pig","cow","bull"],
+      night: ["crow","pig","angryChicken","fox"]
     };
     for (let i=0;i<count;i++){
       const x = baseX + 430 + Math.random()*(len-620);
       if (x < 900) continue;
       this.enemies.push(new Enemy(pick(typesByTheme[theme] || ["pig"]), x, difficulty));
+    }
+  }
+
+  spawnBoss(x, difficulty){
+    this.decor.push({ kind:"warning", x:x-120, y:CONFIG.groundY-180, w:240 });
+    this.enemies.push(new Enemy("giantRooster", x, difficulty));
+  }
+
+  spawnChallenge(x, theme){
+    if (theme === "mud"){
+      this.zones.push({ kind:"slow", x:x, y:CONFIG.groundY-70, w:240, h:90, strength:0.55 });
+      this.addGrid(x, CONFIG.groundY-CONFIG.tile, 10, 1, "mud", 1);
+    } else if (theme === "tractor"){
+      this.addGrid(x, CONFIG.groundY-2*CONFIG.tile, 2, 2, "crate", 1);
+      this.addGrid(x+220, CONFIG.groundY-5*CONFIG.tile, 5, 1, "break", 1);
+    } else if (theme === "field"){
+      this.addBlock(x, CONFIG.groundY-2*CONFIG.tile, CONFIG.tile*3, CONFIG.tile, "trampoline", 2);
+      this.addGrid(x+260, CONFIG.groundY-6*CONFIG.tile, 6, 1, "moving", 2);
+    } else {
+      this.zones.push({ kind:"wind", x:x, y:CONFIG.groundY-250, w:260, h:250, strength:380 });
+      this.addGrid(x+300, CONFIG.groundY-6*CONFIG.tile, 4, 1, "break", 1);
     }
   }
 
@@ -178,6 +211,7 @@ export class World {
       if (b.hp <= 0){
         game.spawnExplosion(b.x+b.w/2, b.y+b.h/2, 0.55);
         game.audio.material(b.kind);
+        if (game.trackProgress) game.trackProgress("blocksBroken", 1);
         this.blocks.splice(i,1);
       }
     }
@@ -189,17 +223,27 @@ export class World {
       if (!aabb(b.x,b.y,b.w,b.h,rx,ry,rw,rh)) continue;
       game.spawnExplosion(b.x+b.w/2, b.y+b.h/2, 0.75);
       game.audio.material(b.kind);
+      if (game.trackProgress) game.trackProgress("blocksBroken", 1);
       this.blocks.splice(i,1);
     }
   }
 
   update(dt, game){
+    this.updateSpecialBlocks(dt);
     for (const e of this.enemies) e.update(dt, game.player, this.blocks);
     this.updateFireballs(dt, game);
     this.updateParticles(dt);
     for (let i=this.cracks.length-1;i>=0;i--){
       this.cracks[i].t += dt;
       if (this.cracks[i].t >= this.cracks[i].life) this.cracks.splice(i,1);
+    }
+  }
+
+  updateSpecialBlocks(dt){
+    for (const b of this.blocks){
+      if (b.kind !== "moving") continue;
+      if (!b.baseX){ b.baseX = b.x; b.phase = Math.random()*Math.PI*2; }
+      b.x = b.baseX + Math.sin(performance.now()/900 + b.phase) * 90;
     }
   }
 
@@ -270,6 +314,8 @@ export class World {
     for (const e of this.enemies) e.draw(ctx, cam);
     for (const f of this.fireballs) this.drawFireball(ctx, f, cam);
     for (const p of this.particles) this.drawParticle(ctx, p, cam);
+    this.drawZones(ctx, cam);
+    this.drawWeather(ctx);
   }
 
   drawDecor(ctx, cam){
@@ -284,6 +330,13 @@ export class World {
         ctx.fillStyle = "#9d2f2f"; ctx.fillRect(x,y,d.w,d.h);
         ctx.fillStyle = "#6f2222"; ctx.beginPath(); ctx.moveTo(x-12,y); ctx.lineTo(x+d.w/2,y-58); ctx.lineTo(x+d.w+12,y); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 4; ctx.strokeRect(x+42,y+74,64,76); ctx.lineWidth = 1;
+      } else if (d.kind === "warning"){
+        const y = d.y - cam.y;
+        ctx.fillStyle = "rgba(255,70,40,.20)";
+        ctx.fillRect(x, y, d.w, 44);
+        ctx.fillStyle = "#ffdf6a";
+        ctx.font = "bold 13px system-ui";
+        ctx.fillText("MINI-BOSS", x+70, y+27);
       }
     }
   }
@@ -291,12 +344,18 @@ export class World {
   drawBlock(ctx,b,cam){
     const x = b.x - cam.x, y = b.y - cam.y;
     if (x < -200 || x > CONFIG.canvas.width+200) return;
-    const colors = { dirt:"#b88a5d", mud:"#74513b", wood:"#8c6a4a", rock:"#8c94a2", treeTrunk:"#7a563a", treeLeaf:"#4ab86a", tractor:"#c73e2d", hay:"#d9b84b", fence:"#9b7148", well:"#b9c2d4" };
+    const colors = { dirt:"#b88a5d", mud:"#74513b", wood:"#8c6a4a", rock:"#8c94a2", treeTrunk:"#7a563a", treeLeaf:"#4ab86a", tractor:"#c73e2d", hay:"#d9b84b", fence:"#9b7148", well:"#b9c2d4", trampoline:"#52c7d8", break:"#d7ad64", moving:"#6fa9de", crate:"#b45335" };
     ctx.fillStyle = colors[b.kind] || "#888";
     if (b.kind === "rock"){
       ctx.beginPath(); ctx.moveTo(x+3,y+20); ctx.lineTo(x+7,y+6); ctx.lineTo(x+18,y+3); ctx.lineTo(x+23,y+14); ctx.lineTo(x+19,y+24); ctx.lineTo(x+6,y+24); ctx.closePath(); ctx.fill();
     } else if (b.kind === "treeLeaf"){
       ctx.beginPath(); ctx.arc(x+12,y+12,13,0,Math.PI*2); ctx.fill();
+    } else if (b.kind === "trampoline"){
+      ctx.fillRect(x, y+8, b.w, b.h-8);
+      ctx.strokeStyle = "#e9ffff"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x+3,y+8); ctx.lineTo(x+b.w-3,y+8); ctx.stroke(); ctx.lineWidth = 1;
+    } else if (b.kind === "crate"){
+      ctx.fillRect(x, y, b.w, b.h);
+      ctx.strokeStyle = "rgba(60,25,10,.45)"; ctx.beginPath(); ctx.moveTo(x+3,y+3); ctx.lineTo(x+b.w-3,y+b.h-3); ctx.moveTo(x+b.w-3,y+3); ctx.lineTo(x+3,y+b.h-3); ctx.stroke();
     } else {
       ctx.fillRect(x, y, b.w, b.h);
       if (["wood","fence","treeTrunk"].includes(b.kind)){
@@ -304,6 +363,34 @@ export class World {
       }
     }
     if (b.hp <= 1){ ctx.strokeStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.moveTo(x+4,y+6); ctx.lineTo(x+b.w-6,y+b.h-8); ctx.stroke(); }
+  }
+
+  drawZones(ctx, cam){
+    for (const z of this.zones){
+      const x = z.x - cam.x, y = z.y - cam.y;
+      if (x > CONFIG.canvas.width || x + z.w < 0) continue;
+      if (z.kind === "wind"){
+        ctx.strokeStyle = "rgba(220,245,255,.28)";
+        for (let i=0;i<z.w;i+=34){ ctx.beginPath(); ctx.moveTo(x+i,y+20+(i%70)); ctx.quadraticCurveTo(x+i+22,y+8+(i%70),x+i+52,y+20+(i%70)); ctx.stroke(); }
+      } else if (z.kind === "slow"){
+        ctx.fillStyle = "rgba(94,65,42,.20)";
+        ctx.fillRect(x,y,z.w,z.h);
+      }
+    }
+  }
+
+  drawWeather(ctx){
+    if (this.weather === "clear") return;
+    if (this.weather === "rain"){
+      ctx.strokeStyle = "rgba(160,205,255,.38)";
+      for (let i=0;i<70;i++){ const x=(i*53+performance.now()/18)%CONFIG.canvas.width; const y=(i*97+performance.now()/9)%CONFIG.canvas.height; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-8,y+18); ctx.stroke(); }
+    } else if (this.weather === "fog"){
+      ctx.fillStyle = "rgba(220,230,220,.10)";
+      for (let i=0;i<5;i++) ctx.fillRect(0, 110+i*55, CONFIG.canvas.width, 24);
+    } else if (this.weather === "wind"){
+      ctx.strokeStyle = "rgba(255,255,255,.20)";
+      for (let i=0;i<12;i++){ const x=(performance.now()/20+i*80)%CONFIG.canvas.width-120; const y=70+i*35; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+120,y+8); ctx.stroke(); }
+    }
   }
 
   drawCollectible(ctx,c,cam,time){

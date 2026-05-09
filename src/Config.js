@@ -5,6 +5,8 @@ export const CONFIG = {
   groundY: 470,
   dayLength: 220,
   highscoreKey: "crazy_chicken_top3_v2",
+  statsKey: "crazy_chicken_stats_v1",
+  achievementsKey: "crazy_chicken_achievements_v1",
   maxHp: 5,
   lives: 3,
   eggMax: 30,
@@ -23,3 +25,11 @@ export const CONFIG = {
     "Enter = Pause"
   ].join(" • ")
 };
+
+export const ACHIEVEMENTS = [
+  { id:"pig50", label:"Besiege 50 Schweine", stat:"pigKills", target:50 },
+  { id:"eggs200", label:"Sammle 200 Eier", stat:"eggs", target:200 },
+  { id:"score5000", label:"Erreiche 5000 Punkte", stat:"bestScore", target:5000 },
+  { id:"boss1", label:"Besiege einen Mini-Boss", stat:"bossKills", target:1 },
+  { id:"fire100", label:"Zerstöre 100 Objekte", stat:"blocksBroken", target:100 }
+];

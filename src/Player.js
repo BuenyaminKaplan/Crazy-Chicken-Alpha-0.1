@@ -204,6 +204,8 @@ export class Player {
     const {w,h} = this.dims();
     const x = this.x - cam.x, y = this.y - cam.y;
     const bob = this.onGround ? Math.sin(this.bob)*1.2 : 0;
+    const airborneSquash = this.onGround ? 1 : 1 + Math.min(0.16, Math.abs(this.vy) / 9000);
+    const eyeBlink = this.onGround && Math.floor(time * 2.4) % 9 === 0;
 
     if (this.dying){
       this.drawDeath(ctx, x, y, w, h, bob);
@@ -224,9 +226,10 @@ export class Player {
       ctx.beginPath(); ctx.arc(x+w/2, y+h/2 + bob, Math.max(w,h)*0.76, 0, Math.PI*2); ctx.fill();
     }
 
+    ctx.strokeStyle = "#8f5b1d"; ctx.lineWidth = 3;
     ctx.fillStyle = "#ffd34a";
-    ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2 + bob, 16*this.scale, 14*this.scale, 0, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(x+w/2 + 6*this.facing*this.scale, y+12*this.scale + bob, 13*this.scale, 12*this.scale, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2 + bob, 16*this.scale/airborneSquash, 14*this.scale*airborneSquash, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(x+w/2 + 6*this.facing*this.scale, y+12*this.scale + bob, 13*this.scale, 12*this.scale, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = "rgba(255,190,40,.95)";
     ctx.beginPath(); ctx.ellipse(x+w/2 - 4*this.facing*this.scale, y+22*this.scale + bob, 9*this.scale, 6*this.scale, 0.2*this.facing, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = "#ff8a2a";
@@ -236,7 +239,12 @@ export class Player {
     ctx.lineTo(x+w/2 + 18*this.facing*this.scale, y+22*this.scale + bob);
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = "#1b1b1b";
-    ctx.beginPath(); ctx.arc(x+w/2 + 10*this.facing*this.scale, y+10*this.scale + bob, 2.2*this.scale, 0, Math.PI*2); ctx.fill();
+    if (eyeBlink){
+      ctx.strokeStyle = "#1b1b1b"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x+w/2 + 7*this.facing*this.scale, y+10*this.scale + bob); ctx.lineTo(x+w/2 + 13*this.facing*this.scale, y+10*this.scale + bob); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(x+w/2 + 10*this.facing*this.scale, y+10*this.scale + bob, 2.2*this.scale, 0, Math.PI*2); ctx.fill();
+    }
     ctx.strokeStyle = "#ff8a2a"; ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(x+w/2 - 6*this.scale, y+h-2 + bob); ctx.lineTo(x+w/2 - 10*this.scale, y+h+6 + bob);

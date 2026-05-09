@@ -1,6 +1,6 @@
 import { CONFIG } from "./Config.js";
 import { aabb } from "./Collision.js";
-import { addHighscore } from "./Storage.js";
+import { addHighscore, addStat, checkAchievements, noteBestScore } from "./Storage.js";
 import { mixHex } from "./Utils.js";
 import { AudioBus } from "./Audio.js";
 import { Input } from "./Input.js";
@@ -26,6 +26,9 @@ export class Game {
     this.state = "start";
     this.difficultyName = "normal";
     this.pendingTop3 = null;
+    this.achievements = [];
+    this.slowMo = 0;
+    this.musicT = 1.5;
     this.shakeT = 0;
     this.shakePow = 0;
   }
@@ -52,6 +55,9 @@ export class Game {
     this.score = 0; this.startX = this.player.x; this.maxX = this.player.x;
     this.worldTime = 18;
     this.pendingTop3 = null;
+    this.achievements = [];
+    this.musicT = 1.2;
+    addStat("runs", 1);
   }
 
   pause(){
@@ -91,32 +97,49 @@ export class Game {
     }
 
     this.worldTime += dt;
-    this.player.update(this.input, dt, this.difficulty);
+    const simDt = this.slowMo > 0 ? dt * 0.45 : dt;
+    this.slowMo = Math.max(0, this.slowMo - dt);
+    this.player.update(this.input, simDt, this.difficulty);
     if (this.input.released("fire")){
       const f = this.player.makeFireball();
       if (f){
         this.world.fireballs.push(f);
+        this.trackProgress("fireballs", 1);
         this.spawnExplosion(f.x, f.y, f.charged ? 0.7 : 0.3);
         if (f.charged) { this.audio.boom(110, 0.12, 0.12); this.addShake(0.55, 0.08); }
         else this.audio.beep(520, 0.03, "triangle", 0.07);
       }
     }
 
-    this.resolvePlayerCollisions(dt);
+    this.resolvePlayerCollisions(simDt);
+    this.applyZones(simDt);
     this.updateCamera(dt);
     this.world.generateTo(this.cam.x + CONFIG.canvas.width + 2400, this.difficulty);
     this.world.cleanup(this.cam.x);
     this.collectItems();
     this.updateEnemyContacts();
-    this.updateFlamethrower(dt);
+    this.updateFlamethrower(simDt);
     this.updateInvulnContact();
-    this.world.update(dt, this);
+    this.world.update(simDt, this);
+    this.updateMusic(dt);
     this.updateScore();
     if (this.shakeT > 0){
       this.shakeT -= dt;
       this.shakePow *= 0.90;
       if (this.shakeT <= 0){ this.shakeT = 0; this.shakePow = 0; }
     }
+  }
+
+  updateMusic(dt){
+    if (!this.audio.enabled) return;
+    this.musicT -= dt;
+    if (this.musicT > 0) return;
+    const night = nightAmount(this.worldTime);
+    this.musicT = night > 0.55 ? 2.8 : 2.2;
+    const base = night > 0.55 ? 220 : 330;
+    const weatherShift = this.world.weather === "rain" ? -30 : (this.world.weather === "wind" ? 45 : 0);
+    this.audio.beep(base + weatherShift, 0.08, "triangle", 0.018);
+    setTimeout(() => this.audio.beep(base * 1.5 + weatherShift, 0.06, "sine", 0.014), 130);
   }
 
   updateDeath(dt){
@@ -159,8 +182,16 @@ export class Game {
       if (!aabb(p.x,p.y,d.w,d.h,b.x,b.y,b.w,b.h)) continue;
       if (p.vy > 0){
         p.y = b.y - d.h;
-        p.vy = 0;
+        if (b.kind === "trampoline"){
+          p.vy = -(p.featherTimer > 0 ? 1700 : 1450);
+          this.spawnLandingDust(p.x + d.w/2, b.y);
+          this.audio.beep(620, 0.06, "triangle", 0.08);
+        } else {
+          p.vy = 0;
+        }
         p.onGround = true;
+        if (b.kind === "break") this.world.damageBlocks(b.x,b.y,b.w,b.h,99,this);
+        if (b.kind === "crate") this.explodeCrate(b);
         if (p.stompPrimed) this.landStomp();
       } else if (p.vy < 0){
         p.y = b.y + b.h;
@@ -172,10 +203,43 @@ export class Game {
       p.y = CONFIG.groundY - d.h;
       p.vy = 0;
       p.onGround = true;
+      this.spawnLandingDust(p.x + d.w/2, CONFIG.groundY);
       if (p.stompPrimed) this.landStomp();
     }
     if (p.y > 1200) this.applyDamage(1);
     p.x = Math.max(this.startX, p.x);
+  }
+
+  applyZones(dt){
+    const p = this.player;
+    const r = p.rect();
+    for (const z of this.world.zones){
+      if (!aabb(r.x,r.y,r.w,r.h,z.x,z.y,z.w,z.h)) continue;
+      if (z.kind === "slow") p.vx *= Math.pow(z.strength, dt * 8);
+      else if (z.kind === "wind") p.vx += z.strength * dt;
+    }
+    if (this.world.weather === "wind") p.vx += 35 * dt;
+  }
+
+  spawnLandingDust(x, y){
+    if (Math.random() > 0.25) return;
+    for (let i=0;i<6;i++){
+      const dir = Math.random()<0.5 ? -1 : 1;
+      this.world.particles.push({ kind:"dust", x:x+dir*Math.random()*8, y:y-4, vx:dir*(90+Math.random()*190), vy:-60-Math.random()*100, r:3+Math.random()*4, t:0, life:0.18+Math.random()*0.12 });
+    }
+  }
+
+  explodeCrate(block){
+    this.spawnExplosion(block.x+block.w/2, block.y+block.h/2, 1.25);
+    this.world.damageBlocks(block.x-90, block.y-90, 180, 180, 8, this);
+    for (const e of this.world.enemies){
+      if (e.alive && aabb(e.x,e.y,e.w,e.h,block.x-110,block.y-110,220,220)){
+        e.damage(5, e.x < block.x ? -1 : 1, 1200);
+        if (!e.alive) this.noteKill(e);
+      }
+    }
+    this.audio.boom(64, 0.18, 0.16);
+    this.addShake(1.0, 0.12);
   }
 
   landStomp(){
@@ -193,6 +257,7 @@ export class Game {
     for (const e of this.world.enemies){
       if (e.alive && aabb(e.x,e.y,e.w,e.h,rx,0,radius*2,CONFIG.canvas.height)){
         e.alive = false;
+        this.noteKill(e);
         this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05);
         this.audio.enemy(e.type);
       }
@@ -212,6 +277,7 @@ export class Game {
       item.got = true;
       this.spawnExplosion(item.x, item.y, item.kind === "goldEgg" ? 1.15 : 0.85);
       p.activatePower(item.kind);
+      if (item.kind === "egg") this.trackProgress("eggs", 1);
       this.audio.cluck();
       if (item.kind === "goldEgg") this.audio.beep(880, 0.08, "triangle", 0.10);
       if (item.kind === "chili") this.audio.beep(320, 0.06, "sawtooth", 0.08);
@@ -232,16 +298,23 @@ export class Game {
       const horizontallyClose = playerCenterX > e.x - 18 && playerCenterX < e.x + e.w + 18;
       if (p.invuln > 0){
         e.alive = false;
+        this.noteKill(e);
         this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.2);
         this.audio.boom(95, 0.10, 0.10);
         this.audio.enemy(e.type);
       } else if (p.vy > 160 && nearTop && horizontallyClose){
         e.alive = false;
+        this.noteKill(e);
         p.vy = -980;
         this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.15);
         this.audio.boom(95, 0.10, 0.11);
         this.audio.enemy(e.type);
       } else {
+        if (e.type === "fox" && p.eggPower > 0){
+          p.eggPower = Math.max(0, p.eggPower - 1);
+          p.scale = 1 + Math.min(1, p.eggPower / CONFIG.eggMax) * 0.7;
+          p.addPopup("Fuchs klaut ein Ei!", "#ffb26a");
+        }
         if (this.applyDamage(1)){
           p.vx = -p.facing * 420;
           p.vy = -240;
@@ -262,7 +335,11 @@ export class Game {
     this.addShake(1.2, 0.12);
     const respawn = this.player.lives - 1 > 0;
     this.player.startDeath(respawn);
-    if (!respawn) this.pendingTop3 = addHighscore(this.score);
+    if (!respawn) {
+      this.pendingTop3 = addHighscore(this.score);
+      noteBestScore(this.score);
+      this.refreshAchievements();
+    }
     return false;
   }
 
@@ -280,7 +357,7 @@ export class Game {
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,coneX,coneY,coneW,coneH)) continue;
       const dead = e.damage(15.5 * p.damageMult() * dt, p.facing, 125);
       e.x += p.facing * 170 * dt;
-      if (dead){ this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05); this.audio.boom(90, 0.10, 0.10); this.audio.enemy(e.type); }
+      if (dead){ this.noteKill(e); this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05); this.audio.boom(90, 0.10, 0.10); this.audio.enemy(e.type); }
     }
     this.world.damageBlocks(coneX, coneY, coneW, coneH, 5.5 * dt, this);
   }
@@ -298,7 +375,7 @@ export class Game {
     if (f.charged){
       const rx = this.cam.x, ry = this.cam.y, rw = CONFIG.canvas.width, rh = CONFIG.canvas.height;
       for (const e of this.world.enemies){
-        if (e.alive && aabb(e.x,e.y,e.w,e.h,rx,ry,rw,rh)){ e.alive = false; this.spawnExplosion(e.x+e.w/2,e.y+e.h/2,1.05); }
+        if (e.alive && aabb(e.x,e.y,e.w,e.h,rx,ry,rw,rh)){ e.alive = false; this.noteKill(e); this.spawnExplosion(e.x+e.w/2,e.y+e.h/2,1.05); }
       }
       this.world.damageBlocks(rx, ry, rw, rh, 9, this);
       this.audio.boom(95, 0.16, 0.14);
@@ -310,6 +387,7 @@ export class Game {
     for (const e of this.world.enemies){
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,f.x-rad,fy-rad,rad*2,rad*2)) continue;
       e.damage(f.dmg, f.vx >= 0 ? 1 : -1, 1600);
+      if (!e.alive) this.noteKill(e);
       this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 0.8);
       this.addShake(0.25, 0.06);
     }
@@ -323,6 +401,31 @@ export class Game {
       this.world.particles.push({ kind:Math.random()<0.65 ? "spark" : "smoke", x,y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-180, r:2+Math.random()*4.2, t:0, life:0.20+Math.random()*0.28 });
     }
     this.world.particles.push({ kind:"ring", x,y, r:10*strength, t:0, life:0.11 });
+  }
+
+  noteKill(enemy){
+    this.trackProgress("enemyKills", 1);
+    if (enemy.type === "pig") this.trackProgress("pigKills", 1);
+    if (enemy.boss){
+      this.trackProgress("bossKills", 1);
+      this.slowMo = 0.55;
+      this.addShake(2.1, 0.22);
+      this.player.addPopup("Boss besiegt!", "#ffdf6a");
+    }
+  }
+
+  trackProgress(stat, amount){
+    addStat(stat, amount);
+    this.refreshAchievements();
+  }
+
+  refreshAchievements(){
+    const result = checkAchievements();
+    for (const a of result.newly){
+      this.player.addPopup(`Achievement: ${a.label}`, "#ffdf6a");
+      this.audio.beep(940, 0.08, "triangle", 0.07);
+    }
+    this.achievements = [...result.unlocked];
   }
 
   updateCamera(dt){

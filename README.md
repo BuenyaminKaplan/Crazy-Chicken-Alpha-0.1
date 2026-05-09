@@ -10,9 +10,12 @@ Ein kleines 2D-Canvas-Browsergame im Cartoon-Bauernhof-Stil. Du spielst ein Kük
 - Distanz-Score und Top-3-Highscores via `localStorage`
 - Prozedurale Endless-Farmwelt mit Themenabschnitten
 - Gegner: Schwein, Kuh, Krähe, wütendes Huhn
+- zusätzliche Gegner: Charge-Hahn, Stier, Fuchs und Mini-Boss-Hahn
 - Fireball und Charged Fireball mit Screen-Clear
 - Stampfer-Angriff in der Luft
 - Power-ups: normales Ei, Gold-Ei, Chili, Feder
+- Trampoline, zerbrechliche Plattformen, Windzonen, Schlammzonen und explosive Kisten
+- Wettereffekte und Achievements/Statistiken
 - WebAudio-Sounds
 - Tag-Nacht-Zyklus mit weichen Übergängen
 - Touch-Steuerung für mobile Geräte

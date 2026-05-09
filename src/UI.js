@@ -1,5 +1,5 @@
 import { CONFIG } from "./Config.js";
-import { clearHighscores, loadHighscores } from "./Storage.js";
+import { checkAchievements, clearHighscores, loadHighscores, loadStats } from "./Storage.js";
 import { nightAmount } from "./World.js";
 
 export class UI {
@@ -58,7 +58,13 @@ export class UI {
       ["Highscores löschen", () => { clearHighscores(); this.showHighscores(); }]
     ]);
     const hs = loadHighscores();
-    this.scoreBox.textContent = `1. ${hs[0] ?? 0}\n2. ${hs[1] ?? 0}\n3. ${hs[2] ?? 0}`;
+    const stats = loadStats();
+    const ach = checkAchievements();
+    const unlocked = [...ach.unlocked].length;
+    this.scoreBox.textContent =
+      `1. ${hs[0] ?? 0}\n2. ${hs[1] ?? 0}\n3. ${hs[2] ?? 0}` +
+      `\n\nStatistik:\nRuns: ${stats.runs}\nBesiegte Gegner: ${stats.enemyKills}\nEier gesamt: ${stats.eggs}\nZerstörte Objekte: ${stats.blocksBroken}` +
+      `\n\nAchievements: ${unlocked}/5`;
   }
 
   cycleDifficulty(){
