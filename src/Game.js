@@ -103,6 +103,13 @@ export class Game {
     this.audio.beep(360, 0.04, "triangle", 0.035);
   }
 
+  closeMath(){
+    if (this.state !== "math") return;
+    this.state = "running";
+    this.ui.hide();
+    this.player.hurtGrace = Math.max(this.player.hurtGrace, 0.85);
+  }
+
   togglePause(){
     if (this.player.dying) return;
     if (this.state === "running" || this.state === "hidden") this.pause();
@@ -118,6 +125,7 @@ export class Game {
     const shopKey = this.input.pressed("shop");
     const skinKey = this.input.pressed("skin");
     if (this.state === "shop" && (shopKey || enter || escape)) this.closeShop();
+    else if (this.state === "math" && escape) this.closeMath();
     else if (shopKey && this.state === "running" && this.nearMerchant()) this.openShop();
     else if (skinKey && this.state === "running") this.cycleSkin();
     else if (enter) this.togglePause();
@@ -299,20 +307,22 @@ export class Game {
   handleMathAction(){
     const sign = this.world.nearestMathSign(this.player.center());
     if (!sign) return;
-    this.player.hurtGrace = Math.max(this.player.hurtGrace, 2.0);
     const task = this.math.makeTask();
-    const raw = window.prompt(`${task.text}\nGib die Antwort ein:`);
-    this.player.hurtGrace = Math.max(this.player.hurtGrace, 1.2);
-    if (raw === null) return;
-    if (this.math.check(raw.trim())){
-      const skin = this.skins.unlockNext();
-      this.player.addPopup(skin ? `Skin frei: ${skin.name}` : "Alle Skins frei!", "#ffdf6a");
-      this.audio.pickup("goldEgg");
-      sign.solved = true;
-    } else {
-      this.player.addPopup("Fast! Versuch spaeter nochmal.", "#ff8b7a");
-      this.audio.beep(130, 0.08, "square", 0.08);
-    }
+    this.state = "math";
+    this.player.vx = 0;
+    this.player.hurtGrace = 999;
+    this.ui.showMathQuestion(task, value => {
+      if (this.math.check(value.trim())){
+        const skin = this.skins.unlockNext();
+        this.player.addPopup(skin ? `Skin frei: ${skin.name}` : "Alle Skins frei!", "#ffdf6a");
+        this.audio.pickup("goldEgg");
+        sign.solved = true;
+        this.closeMath();
+      } else {
+        this.player.addPopup("Fast! Versuch nochmal.", "#ff8b7a");
+        this.audio.beep(130, 0.08, "square", 0.08);
+      }
+    }, () => this.closeMath());
   }
 
   nearMerchant(){
@@ -605,7 +615,7 @@ export class Game {
   }
 
   applyDamage(amount){
-    if (this.player.hidden || this.state === "shop" || this.inSafeZone()) return false;
+    if (this.player.hidden || this.state === "shop" || this.state === "math" || this.inSafeZone()) return false;
     const died = this.player.takeDamage(amount, this.difficulty);
     if (!died){
       this.spawnExplosion(this.player.center().x, this.player.center().y, 0.8);

@@ -277,7 +277,6 @@ export class World {
       return;
     }
     if (transition){
-      this.decor.push({ kind:"transitionGate", x:baseX+len*0.5, y:CONFIG.groundY-124, label:"NEUER WEG" });
       this.decor.push({ kind:"grass", x:baseX+260, y:CONFIG.groundY, w:Math.min(640, len-420) });
       if (chance(0.22)) this.spawnMathSign(baseX+len*0.66);
       return;
@@ -571,7 +570,7 @@ export class World {
     for (const d of this.decor){
       if (d.kind === "ghost" && n <= 0.55) continue;
       if (d.kind === "fireflies" && n <= 0.45) continue;
-      const worldLocked = ["barn","merchant","campfire","coop","sign","mathSign","transitionGate","scarecrow","windmill","laundry"].includes(d.kind);
+      const worldLocked = ["barn","merchant","campfire","coop","sign","mathSign","scarecrow","windmill","laundry"].includes(d.kind);
       const x = d.x - cam.x * (worldLocked ? 1 : 0.92);
       if (x < -260 || x > CONFIG.canvas.width+260) continue;
       if (layer === "back" && !["barn","windmill","laundry","fireflies","ghost","deadTree","pyramid","volcano","snowPine","palm","willow"].includes(d.kind)) continue;
@@ -585,13 +584,6 @@ export class World {
         for (let i=0;i<d.w;i+=76) ellipse(ctx, x+i+16, y-8-(i%2)*3, 12+(i%3)*3, 7, -0.1, "#9da4a4", "rgba(64,58,52,.55)", 1.5);
       } else if (d.kind === "sign"){
         drawPlankSign(ctx, x, d.y-cam.y, d.label);
-      } else if (d.kind === "transitionGate"){
-        const y = d.y - cam.y;
-        ctx.strokeStyle = OUTLINE; ctx.lineWidth = 5; ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.moveTo(x-58,y+112); ctx.lineTo(x-58,y+22); ctx.quadraticCurveTo(x,y-22,x+58,y+22); ctx.lineTo(x+58,y+112);
-        ctx.stroke(); ctx.lineWidth = 1;
-        drawPlankSign(ctx, x, y+78, d.label);
       } else if (d.kind === "mathSign"){
         drawPlankSign(ctx, x, d.y-cam.y, d.solved ? "OK" : "R: MATHE");
         if (!d.solved){

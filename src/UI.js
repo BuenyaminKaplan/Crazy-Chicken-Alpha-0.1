@@ -59,6 +59,52 @@ export class UI {
     this.renderShopPanel(active);
   }
 
+  showMathQuestion(task, onSubmit, onClose){
+    this.overlay.style.display = "flex";
+    this.menu.className = "menu mathMenu";
+    this.title.textContent = "Mathe-Schild";
+    this.text.textContent = "Loese die Aufgabe. Waehrenddessen bist du geschuetzt.";
+    this.opts.innerHTML = "";
+    this.scoreBox.className = "scores mathPanel";
+    this.scoreBox.innerHTML = "";
+
+    const wrap = document.createElement("div");
+    wrap.className = "mathBox";
+    const question = document.createElement("div");
+    question.className = "mathQuestion";
+    question.textContent = task.text;
+    const input = document.createElement("input");
+    input.className = "mathInput";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.placeholder = "Antwort";
+    const feedback = document.createElement("div");
+    feedback.className = "mathFeedback";
+    const submit = document.createElement("button");
+    submit.className = "btn primaryBuy";
+    submit.textContent = "Antwort pruefen";
+    const close = document.createElement("button");
+    close.className = "btn";
+    close.textContent = "Schliessen";
+    const check = () => {
+      onSubmit(input.value);
+      if (this.game.state === "math"){
+        feedback.textContent = "Nicht ganz. Versuch es nochmal.";
+        input.select();
+      }
+    };
+    submit.onclick = check;
+    close.onclick = onClose;
+    input.addEventListener("keydown", e => {
+      e.stopPropagation();
+      if (e.key === "Enter") check();
+      if (e.key === "Escape") onClose();
+    });
+    wrap.append(question, input, feedback, submit, close);
+    this.scoreBox.appendChild(wrap);
+    setTimeout(() => input.focus(), 0);
+  }
+
   shopEntries(){
     const p = this.game.player;
     const abilities = ABILITIES.map(a => {
@@ -201,14 +247,14 @@ export class UI {
 
   showControls(){
     this.show("Steuerung", CONFIG.controlsText + "\n\nTouch: Nutze die eingeblendeten Buttons auf kleinen Bildschirmen.", [
-      ["Zurück", () => ["running","hidden","paused","shop"].includes(this.game.state) ? this.showPause() : this.showStart()]
+      ["Zurück", () => ["running","hidden","paused","shop","math"].includes(this.game.state) ? this.showPause() : this.showStart()]
     ]);
     this.scoreBox.textContent = "Tipp: Stampfer funktioniert nur in der Luft mit ↓.";
   }
 
   showHighscores(){
     this.show("Highscores", "Top 3 Distance-Scores", [
-      ["Zurück", () => ["running","hidden","paused","shop"].includes(this.game.state) ? this.showPause() : this.showStart()],
+      ["Zurück", () => ["running","hidden","paused","shop","math"].includes(this.game.state) ? this.showPause() : this.showStart()],
       ["Highscores löschen", () => { clearHighscores(); this.showHighscores(); }]
     ]);
     const hs = loadHighscores();

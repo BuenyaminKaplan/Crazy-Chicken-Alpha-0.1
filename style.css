@@ -319,6 +319,52 @@ canvas {
   justify-self: start;
 }
 
+.mathMenu {
+  width: min(520px, calc(100vw - 28px));
+}
+
+.mathPanel {
+  background: rgba(255,255,255,.07);
+}
+
+.mathBox {
+  display: grid;
+  gap: 12px;
+}
+
+.mathQuestion {
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 226, 146, .14);
+  color: #ffe08a;
+  text-align: center;
+  font-size: 32px;
+  font-weight: 900;
+}
+
+.mathInput {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.22);
+  background: rgba(255,255,255,.10);
+  color: #fff;
+  font: 800 24px system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  text-align: center;
+}
+
+.mathInput:focus {
+  outline: 2px solid rgba(255, 224, 145, .58);
+}
+
+.mathFeedback {
+  min-height: 18px;
+  color: #ffb26a;
+  font-weight: 700;
+  text-align: center;
+}
+
 .opts {
   margin-top: 14px;
   display: grid;

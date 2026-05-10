@@ -18,6 +18,16 @@ http://localhost:8080/Crazy-Chicken%20Alpha-0.1.html
 
 Manche Browser erlauben ES-Module auch direkt per Dateiöffnung, manche blockieren sie über `file://`.
 
+## Godot-4-Neuaufbau
+
+Zusätzlich liegt jetzt eine Godot-4-Rekonstruktion im Ordner:
+
+```text
+godot/
+```
+
+Diese Version rekonstruiert das Spiel als Engine-Projekt mit Szenen, GDScript, State-Machine, BiomeManager, SpawnManager, Safe-Zones, Shop-UI und nicht blockierender Mathe-UI. Öffne dafür `godot/project.godot` in Godot 4.4 oder neuer.
+
 ## Steuerung
 
 - `←` / `→`: laufen
