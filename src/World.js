@@ -2,6 +2,7 @@ import { CONFIG } from "./Config.js";
 import { aabb } from "./Collision.js";
 import { chance, mixHex, pick, rand, smoothstep } from "./Utils.js";
 import { Enemy } from "./Enemy.js";
+import { materialFromBlock } from "./MetaSystems.js";
 import { OUTLINE, contactShadow, drawFlower, drawGrassClump, drawPlankSign, drawSoftLight, drawWoodGrain, ellipse, fillStroke, roundedRect } from "./Art.js";
 
 export class World {
@@ -14,6 +15,7 @@ export class World {
     this.cracks = [];
     this.fireballs = [];
     this.zones = [];
+    this.craters = [];
     this.weather = "clear";
     this.nextBossX = 4200;
     this.nextGenX = 0;
@@ -28,6 +30,7 @@ export class World {
     this.cracks.length = 0;
     this.fireballs.length = 0;
     this.zones.length = 0;
+    this.craters.length = 0;
     this.weather = "clear";
     this.nextBossX = 4200;
     this.nextGenX = 0;
@@ -52,6 +55,28 @@ export class World {
 
   safeZoneAt(x, y){
     return this.zones.find(z => z.kind === "safe" && x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) || null;
+  }
+
+  nearestMathSign(c){
+    let best = null, bestD = Infinity;
+    for (const d of this.decor){
+      if (d.kind !== "mathSign" || d.solved) continue;
+      const dx = c.x - d.x, dy = c.y - d.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 72 && dist < bestD){ best = d; bestD = dist; }
+    }
+    return best;
+  }
+
+  addCrater(x, r, game){
+    const existing = this.craters.find(c => Math.abs(c.x - x) < Math.max(c.r, r));
+    if (existing){
+      existing.deep = true;
+      existing.r = Math.min(120, existing.r + r * 0.55);
+      game.addShake(0.8, 0.14);
+      return;
+    }
+    this.craters.push({ x, r:Math.min(72, r), deep:false, t:0 });
   }
 
   safeCollectible(x, y){
@@ -107,6 +132,7 @@ export class World {
     else if (theme === "mud") this.spawnMud(baseX+720);
     else if (theme === "field") this.spawnField(baseX+760);
     else if (theme === "night") this.spawnTreeRock(baseX+780);
+    this.spawnBiomeSetPiece(baseX, theme);
 
     if (theme !== "start" && baseX > 1800 && chance(0.24)) this.spawnMarket(baseX + Math.min(len - 360, 860));
 
@@ -176,6 +202,7 @@ export class World {
     this.decor.push({ kind:"grass", x:x-120, y:CONFIG.groundY, w:420 });
     this.decor.push({ kind:"flowers", x:x-80, y:CONFIG.groundY, w:360 });
     if (chance(0.55)) this.decor.push({ kind:"sign", x:x+350, y:CONFIG.groundY-58, label:"EIER" });
+    if (chance(0.36)) this.decor.push({ kind:"mathSign", x:x+520, y:CONFIG.groundY-74, label:"MATHE" });
     if (chance(0.38)) this.decor.push({ kind:"scarecrow", x:x+550, y:CONFIG.groundY-112 });
   }
   spawnBarn(x){
@@ -191,6 +218,29 @@ export class World {
     this.addGrid(x, CONFIG.groundY-CONFIG.tile, 9, 1, "mud", 1);
     this.addGrid(x+260, CONFIG.groundY-2*CONFIG.tile, 5, 2, "hay", 2);
     this.decor.push({ kind:"stones", x:x-70, y:CONFIG.groundY, w:540 });
+  }
+
+  spawnBiomeSetPiece(baseX, theme){
+    const biome = ["field","jungle","beach","desert","snow","darkForest","volcano","swamp"][Math.floor(Math.max(0, baseX)/2400)%8];
+    if (biome === "desert"){
+      this.decor.push({ kind:"pyramid", x:baseX+980, y:CONFIG.groundY-138, w:180, h:138 });
+      this.decor.push({ kind:"cactus", x:baseX+640, y:CONFIG.groundY-92 });
+    } else if (biome === "snow"){
+      this.decor.push({ kind:"snowPine", x:baseX+720, y:CONFIG.groundY-150 });
+      this.weather = "fog";
+    } else if (biome === "beach"){
+      this.zones.push({ kind:"water", x:baseX+680, y:CONFIG.groundY-42, w:280, h:74 });
+      this.decor.push({ kind:"waterfall", x:baseX+890, y:CONFIG.groundY-250, w:90, h:250 });
+    } else if (biome === "volcano"){
+      this.zones.push({ kind:"lava", x:baseX+620, y:CONFIG.groundY-38, w:260, h:68 });
+      this.decor.push({ kind:"volcano", x:baseX+900, y:CONFIG.groundY-230, w:220, h:230 });
+    } else if (biome === "jungle"){
+      this.decor.push({ kind:"palm", x:baseX+700, y:CONFIG.groundY-160 });
+      this.decor.push({ kind:"vines", x:baseX+850, y:CONFIG.groundY-180, w:160 });
+    } else if (biome === "swamp"){
+      this.zones.push({ kind:"slow", x:baseX+630, y:CONFIG.groundY-64, w:260, h:90, strength:0.42 });
+      this.decor.push({ kind:"willow", x:baseX+790, y:CONFIG.groundY-155 });
+    }
   }
   spawnTractor(x){
     this.addGrid(x, CONFIG.groundY-2*CONFIG.tile, 7, 2, "tractor", 4);
@@ -245,6 +295,8 @@ export class World {
       if (b.hp <= 0){
         game.spawnExplosion(b.x+b.w/2, b.y+b.h/2, 0.55);
         game.audio.material(b.kind);
+        const mat = game.materials ? materialFromBlock(b.kind) : null;
+        if (mat && game.materials.add(mat, 1)) game.player.addPopup(`+ ${mat}`, "#fff1b8");
         if (game.trackProgress) game.trackProgress("blocksBroken", 1);
         this.blocks.splice(i,1);
       }
@@ -270,6 +322,19 @@ export class World {
     for (let i=this.cracks.length-1;i>=0;i--){
       this.cracks[i].t += dt;
       if (this.cracks[i].t >= this.cracks[i].life) this.cracks.splice(i,1);
+    }
+    for (const c of this.craters){
+      c.t += dt;
+      if (!c.deep) continue;
+      for (const e of this.enemies){
+        if (e.alive && Math.abs((e.x+e.w/2)-c.x) < c.r*.68 && e.y + e.h >= CONFIG.groundY-8){
+          e.alive = false;
+          game.noteKill(e);
+          game.spawnExplosion(e.x+e.w/2, CONFIG.groundY-8, 0.7);
+        }
+      }
+      const p = game.player, pc = p.center();
+      if (!game.nearMerchant() && Math.abs(pc.x-c.x) < c.r*.52 && p.y+p.dims().h >= CONFIG.groundY-8) game.applyDamage(1, "crater");
     }
   }
 
@@ -360,6 +425,7 @@ export class World {
     ctx.fillStyle = mixHex("#3f833e", "#315332", n);
     ctx.fillRect(-200, CONFIG.groundY-cam.y, CONFIG.canvas.width+400, 10);
     this.drawDecor(ctx, cam, worldTime, "front");
+    this.drawCraters(ctx, cam);
 
     for (const c of this.cracks){
       const x = c.x - cam.x, y = c.y - cam.y, a = 1 - c.t/c.life;
@@ -374,6 +440,21 @@ export class World {
     this.drawZones(ctx, cam);
     this.drawWeather(ctx);
     if (n > 0.48) this.drawNightAtmosphere(ctx, cam, worldTime, n);
+  }
+
+  drawCraters(ctx, cam){
+    for (const c of this.craters){
+      const x = c.x - cam.x, y = CONFIG.groundY - cam.y + 1;
+      if (x + c.r < -100 || x - c.r > CONFIG.canvas.width+100) continue;
+      ctx.fillStyle = c.deep ? "rgba(9,7,8,.88)" : "rgba(66,44,31,.72)";
+      ctx.beginPath(); ctx.ellipse(x, y, c.r, c.deep ? 28 : 14, 0, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = c.deep ? "rgba(255,95,55,.55)" : "rgba(26,18,14,.55)";
+      ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 1;
+      if (c.deep){
+        ctx.fillStyle = "rgba(255,90,35,.16)";
+        ctx.beginPath(); ctx.ellipse(x, y+10, c.r*.74, 10, 0, 0, Math.PI*2); ctx.fill();
+      }
+    }
   }
 
   drawDecor(ctx, cam, worldTime=0, layer="front"){
@@ -392,6 +473,11 @@ export class World {
         for (let i=0;i<d.w;i+=76) ellipse(ctx, x+i+16, y-8-(i%2)*3, 12+(i%3)*3, 7, -0.1, "#9da4a4", "rgba(64,58,52,.55)", 1.5);
       } else if (d.kind === "sign"){
         drawPlankSign(ctx, x, d.y-cam.y, d.label);
+      } else if (d.kind === "mathSign"){
+        drawPlankSign(ctx, x, d.y-cam.y, d.solved ? "OK" : "R: MATHE");
+        if (!d.solved){
+          ctx.fillStyle = "#fff7cf"; ctx.font = "bold 11px system-ui"; ctx.fillText("?", x-4, d.y-cam.y-36);
+        }
       } else if (d.kind === "scarecrow"){
         const y = d.y-cam.y;
         ctx.strokeStyle = OUTLINE; ctx.lineWidth = 4;
@@ -459,6 +545,32 @@ export class World {
         const y = d.y-cam.y;
         ctx.strokeStyle = "rgba(63,43,35,.82)"; ctx.lineWidth = 9; ctx.lineCap = "round";
         ctx.beginPath(); ctx.moveTo(x+56,y+165); ctx.lineTo(x+48,y+74); ctx.lineTo(x+28,y+38); ctx.moveTo(x+50,y+92); ctx.lineTo(x+82,y+47); ctx.moveTo(x+49,y+120); ctx.lineTo(x+18,y+92); ctx.stroke(); ctx.lineWidth = 1;
+      } else if (d.kind === "bed"){
+        const y = d.y-cam.y;
+        roundedRect(ctx, x, y+12, d.w, 24, 8, "#8b5a3c", OUTLINE, 2);
+        roundedRect(ctx, x+8, y, d.w-16, 24, 8, "#d9edf4", OUTLINE, 2);
+        ctx.fillStyle = "#ffdf8a"; ctx.fillRect(x+12,y+5,18,12);
+      } else if (d.kind === "pyramid"){
+        const y = d.y-cam.y;
+        ctx.fillStyle = "#d6b36a"; ctx.beginPath(); ctx.moveTo(x,y+d.h); ctx.lineTo(x+d.w/2,y); ctx.lineTo(x+d.w,y+d.h); ctx.closePath(); ctx.fill(); ctx.strokeStyle=OUTLINE; ctx.stroke();
+      } else if (d.kind === "cactus"){
+        const y = d.y-cam.y; ctx.strokeStyle="#2f8a55"; ctx.lineWidth=13; ctx.lineCap="round";
+        ctx.beginPath(); ctx.moveTo(x,y+88); ctx.lineTo(x,y+18); ctx.moveTo(x,y+48); ctx.lineTo(x-24,y+36); ctx.moveTo(x,y+62); ctx.lineTo(x+24,y+48); ctx.stroke(); ctx.lineWidth=1;
+      } else if (d.kind === "snowPine"){
+        const y = d.y-cam.y; ctx.fillStyle="#315f51";
+        for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(x,y+130-i*38); ctx.lineTo(x+44,y+55-i*24); ctx.lineTo(x+88,y+130-i*38); ctx.closePath(); ctx.fill(); }
+        ctx.fillStyle="rgba(255,255,255,.72)"; ctx.beginPath(); ctx.moveTo(x+9,y+102); ctx.lineTo(x+44,y+54); ctx.lineTo(x+79,y+102); ctx.closePath(); ctx.fill();
+      } else if (d.kind === "waterfall"){
+        const y=d.y-cam.y; ctx.fillStyle="rgba(100,190,235,.55)"; roundedRect(ctx,x,y,d.w,d.h,14,"rgba(94,185,230,.55)","rgba(210,245,255,.65)",2);
+        ctx.strokeStyle="rgba(255,255,255,.45)"; for(let i=10;i<d.w;i+=18){ctx.beginPath();ctx.moveTo(x+i,y+8);ctx.lineTo(x+i+Math.sin(worldTime*5+i)*8,y+d.h-8);ctx.stroke();}
+      } else if (d.kind === "volcano"){
+        const y=d.y-cam.y; ctx.fillStyle="#5a4139"; ctx.beginPath(); ctx.moveTo(x,y+d.h); ctx.lineTo(x+d.w*.45,y+30); ctx.lineTo(x+d.w*.62,y+34); ctx.lineTo(x+d.w,y+d.h); ctx.closePath(); ctx.fill();
+        drawSoftLight(ctx,x+d.w*.54,y+44,70,"255,90,35",0.22);
+      } else if (d.kind === "palm" || d.kind === "willow"){
+        const y=d.y-cam.y; ctx.strokeStyle="#7d5738"; ctx.lineWidth=9; ctx.beginPath(); ctx.moveTo(x,y+150); ctx.quadraticCurveTo(x+18,y+80,x+5,y+20); ctx.stroke(); ctx.lineWidth=1;
+        ctx.fillStyle=d.kind==="palm"?"#2e9659":"#3f7e55"; for(let i=0;i<6;i++){ctx.beginPath();ctx.ellipse(x+8,y+25,48,10,i*.55,0,Math.PI*2);ctx.fill();}
+      } else if (d.kind === "vines"){
+        const y=d.y-cam.y; ctx.strokeStyle="rgba(55,130,66,.65)"; for(let i=0;i<d.w;i+=22){ctx.beginPath();ctx.moveTo(x+i,y);ctx.quadraticCurveTo(x+i+10,y+40,x+i,y+95);ctx.stroke();}
       } else if (d.kind === "campfire"){
         const y = d.y-cam.y;
         contactShadow(ctx, x, y+30, 34, 0.18);
@@ -535,6 +647,16 @@ export class World {
       } else if (z.kind === "slow"){
         ctx.fillStyle = "rgba(94,65,42,.20)";
         ctx.fillRect(x,y,z.w,z.h);
+      } else if (z.kind === "water"){
+        ctx.fillStyle = "rgba(82,170,220,.38)";
+        ctx.fillRect(x,y,z.w,z.h);
+        ctx.strokeStyle = "rgba(220,250,255,.48)";
+        for (let i=0;i<z.w;i+=30){ ctx.beginPath(); ctx.moveTo(x+i,y+10); ctx.quadraticCurveTo(x+i+14,y+2,x+i+28,y+10); ctx.stroke(); }
+      } else if (z.kind === "lava"){
+        ctx.fillStyle = "rgba(255,70,20,.58)";
+        ctx.fillRect(x,y,z.w,z.h);
+        ctx.fillStyle = "rgba(255,210,55,.48)";
+        for (let i=0;i<z.w;i+=34){ ctx.beginPath(); ctx.ellipse(x+i+12,y+18+Math.sin(performance.now()/180+i)*5,18,5,0,0,Math.PI*2); ctx.fill(); }
       } else if (z.kind === "safe"){
         const g = ctx.createLinearGradient(x, y, x, y+z.h);
         g.addColorStop(0, "rgba(255,231,148,.05)");

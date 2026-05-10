@@ -1,8 +1,8 @@
 export class Input {
   constructor(audio){
     this.audio = audio;
-    this.keys = { left:false, right:false, up:false, down:false, fire:false, enter:false, escape:false, shop:false };
-    this.prev = { down:false, fire:false, enter:false, escape:false, shop:false };
+    this.keys = { left:false, right:false, up:false, down:false, fire:false, enter:false, escape:false, shop:false, bed:false, math:false, skin:false };
+    this.prev = { down:false, fire:false, enter:false, escape:false, shop:false, bed:false, math:false, skin:false };
     this.bindKeyboard();
     this.bindTouch();
   }
@@ -17,7 +17,10 @@ export class Input {
       if (e.key === "Enter") this.keys.enter = true;
       if (e.key === "Escape") this.keys.escape = true;
       if (e.key.toLowerCase() === "h") this.keys.shop = true;
-      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Enter","Escape"].includes(e.key) || e.key.toLowerCase() === "h"){
+      if (e.key.toLowerCase() === "s") this.keys.bed = true;
+      if (e.key.toLowerCase() === "r") this.keys.math = true;
+      if (e.key.toLowerCase() === "k") this.keys.skin = true;
+      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Enter","Escape"].includes(e.key) || ["h","s","r","k"].includes(e.key.toLowerCase())){
         this.audio.resume();
         e.preventDefault();
       }
@@ -31,6 +34,9 @@ export class Input {
       if (e.key === "Enter") this.keys.enter = false;
       if (e.key === "Escape") this.keys.escape = false;
       if (e.key.toLowerCase() === "h") this.keys.shop = false;
+      if (e.key.toLowerCase() === "s") this.keys.bed = false;
+      if (e.key.toLowerCase() === "r") this.keys.math = false;
+      if (e.key.toLowerCase() === "k") this.keys.skin = false;
     });
   }
 
@@ -48,5 +54,5 @@ export class Input {
 
   pressed(key){ return this.keys[key] && !this.prev[key]; }
   released(key){ return !this.keys[key] && this.prev[key]; }
-  snapshot(){ this.prev = { down:this.keys.down, fire:this.keys.fire, enter:this.keys.enter, escape:this.keys.escape, shop:this.keys.shop }; }
+  snapshot(){ this.prev = { down:this.keys.down, fire:this.keys.fire, enter:this.keys.enter, escape:this.keys.escape, shop:this.keys.shop, bed:this.keys.bed, math:this.keys.math, skin:this.keys.skin }; }
 }

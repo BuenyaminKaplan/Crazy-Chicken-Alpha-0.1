@@ -37,6 +37,7 @@ export class Enemy {
     this.warnT = 0;
     this.boss = type === "giantRooster";
     this.maxHp = specs.hp;
+    this.burnT = 0;
   }
 
   damage(dmg, dir, knock){
@@ -51,6 +52,7 @@ export class Enemy {
   update(dt, player, blocks, playerHidden=false){
     if (!this.alive) return;
     this.hitT = Math.max(0, this.hitT - dt);
+    this.burnT = Math.max(0, this.burnT - dt);
     this.slowT = Math.max(0, this.slowT - dt);
     this.turnT = Math.max(0, this.turnT - dt);
     this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
@@ -150,6 +152,10 @@ export class Enemy {
     if (x < -260 || x > CONFIG.canvas.width + 260) return;
     ctx.save();
     ctx.globalAlpha = this.hitT > 0 ? 0.55 : 1;
+    if (this.burnT > 0){
+      ctx.shadowColor = "#ff6a22";
+      ctx.shadowBlur = 14;
+    }
     if (this.type !== "crow") contactShadow(ctx, x + this.w/2, y + this.h + 5, this.w * 0.42, this.boss ? 0.22 : 0.17);
     if (this.type === "pig") this.drawPig(ctx, x, y);
     else if (this.type === "cow") this.drawCow(ctx, x, y);

@@ -168,6 +168,7 @@ canvas {
 
 .shopIcon,
 .bigIcon {
+  position: relative;
   display: grid;
   place-items: center;
   border-radius: 8px;
@@ -202,6 +203,90 @@ canvas {
   height: 78px;
   font-size: 36px;
   margin-bottom: 12px;
+}
+
+.shopIcon::before,
+.shopIcon::after,
+.bigIcon::before,
+.bigIcon::after {
+  content: "";
+  position: absolute;
+  display: block;
+}
+
+.icon-fireball::before {
+  width: 42%;
+  height: 62%;
+  left: 31%;
+  top: 19%;
+  border-radius: 60% 60% 50% 50%;
+  background: radial-gradient(circle at 55% 72%, #fff18a 0 18%, #ff7a2a 36%, #d93018 76%);
+  transform: rotate(-16deg);
+}
+
+.icon-ice::before {
+  width: 62%;
+  height: 62%;
+  left: 19%;
+  top: 19%;
+  clip-path: polygon(50% 0, 62% 34%, 100% 50%, 62% 66%, 50% 100%, 38% 66%, 0 50%, 38% 34%);
+  background: linear-gradient(#effcff, #75d7ff);
+}
+
+.icon-lightning::before {
+  width: 52%;
+  height: 70%;
+  left: 26%;
+  top: 13%;
+  clip-path: polygon(48% 0, 82% 0, 58% 38%, 88% 38%, 30% 100%, 44% 55%, 16% 55%);
+  background: #fff05a;
+}
+
+.icon-eggBomb::before {
+  width: 52%;
+  height: 64%;
+  left: 24%;
+  top: 22%;
+  border-radius: 50% 50% 46% 46%;
+  background: radial-gradient(circle at 38% 28%, #fff, #fff0c6 36%, #b47a3b 100%);
+}
+
+.icon-eggBomb::after {
+  width: 16%;
+  height: 16%;
+  left: 58%;
+  top: 14%;
+  border-radius: 50%;
+  background: #ff5b22;
+  box-shadow: 0 0 10px #ffbb55;
+}
+
+.icon-shield::before {
+  width: 58%;
+  height: 66%;
+  left: 21%;
+  top: 16%;
+  clip-path: polygon(50% 0, 88% 18%, 76% 72%, 50% 100%, 24% 72%, 12% 18%);
+  background: linear-gradient(#dff8ff, #73bce3);
+}
+
+.icon-heal::before,
+.icon-life::before {
+  width: 56%;
+  height: 50%;
+  left: 22%;
+  top: 26%;
+  background: #ff6f9c;
+  clip-path: polygon(50% 88%, 8% 42%, 8% 16%, 28% 4%, 50% 22%, 72% 4%, 92% 16%, 92% 42%);
+}
+
+.icon-upgrade::before {
+  width: 58%;
+  height: 58%;
+  left: 21%;
+  top: 20%;
+  clip-path: polygon(50% 0, 100% 48%, 68% 48%, 68% 100%, 32% 100%, 32% 48%, 0 48%);
+  background: #fff2a8;
 }
 
 .shopDetail h2 {

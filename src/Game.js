@@ -6,6 +6,7 @@ import { drawGrassClump, drawSoftLight } from "./Art.js";
 import { AudioBus } from "./Audio.js";
 import { AbilitySystem } from "./Abilities.js";
 import { RenderLayers } from "./RenderAssets.js";
+import { MaterialSystem, MathSystem, SkinSystem, SurvivalSystem } from "./MetaSystems.js";
 import { Input } from "./Input.js";
 import { Player } from "./Player.js";
 import { UI } from "./UI.js";
@@ -19,6 +20,10 @@ export class Game {
     this.audio = new AudioBus();
     this.input = new Input(this.audio);
     this.abilities = new AbilitySystem();
+    this.materials = new MaterialSystem();
+    this.math = new MathSystem();
+    this.skins = new SkinSystem();
+    this.survival = new SurvivalSystem();
     this.player = new Player();
     this.world = new World();
     this.ui = new UI(this);
@@ -61,6 +66,8 @@ export class Game {
     this.ui.hide();
     this.player.reset();
     this.abilities.resetForRun();
+    this.materials.reset();
+    this.survival.reset();
     this.world.reset(this.difficulty);
     this.cam.x = 0; this.cam.y = 0;
     this.score = 0; this.startX = this.player.x; this.maxX = this.player.x;
@@ -108,8 +115,10 @@ export class Game {
     const enter = this.input.pressed("enter");
     const escape = this.input.pressed("escape");
     const shopKey = this.input.pressed("shop");
+    const skinKey = this.input.pressed("skin");
     if (this.state === "shop" && (shopKey || enter || escape)) this.closeShop();
     else if (shopKey && this.state === "running" && this.nearMerchant()) this.openShop();
+    else if (skinKey && this.state === "running") this.cycleSkin();
     else if (enter) this.togglePause();
     else if (escape && this.state === "running") this.pause();
     else if (escape && this.state === "paused") this.resume();
@@ -130,6 +139,8 @@ export class Game {
     const simDt = this.slowMo > 0 ? dt * 0.45 : dt;
     this.slowMo = Math.max(0, this.slowMo - dt);
     this.abilities.update(dt);
+    this.survival.setBiomeByX(this.player.x);
+    this.survival.update(dt, this);
     this.updateHideState(dt);
     if (this.state === "hidden"){
       this.updateWhileHidden(dt);
@@ -182,6 +193,8 @@ export class Game {
         }
       }
     }
+    if (this.input.pressed("bed")) this.handleBedAction();
+    if (this.input.pressed("math")) this.handleMathAction();
 
     this.resolvePlayerCollisions(simDt);
     this.hideGrace = Math.max(0, this.hideGrace - dt);
@@ -251,6 +264,52 @@ export class Game {
     this.player.vy = 0;
     this.player.hurtGrace = 999;
     this.ui.showShop();
+  }
+
+  cycleSkin(){
+    const s = this.skins.cycle();
+    this.player.skin = this.skins.equipped;
+    this.player.addPopup(`Skin: ${s.name}`, "#d7f7ff");
+    this.audio.beep(720, 0.05, "triangle", 0.045);
+  }
+
+  handleBedAction(){
+    if (!this.nearMerchant()) return;
+    if (!this.materials.bedBuilt){
+      if (this.materials.buildBed()){
+        const z = this.nearestMerchant();
+        this.world.decor.push({ kind:"bed", x:(z?.x ?? this.player.x) + 210, y:CONFIG.groundY-38, w:72, h:38 });
+        this.player.addPopup("Bett gebaut!", "#fff1b8");
+        this.audio.pickup("goldEgg");
+      } else {
+        this.player.addPopup("Material fehlt", "#ffb26a");
+        this.audio.beep(150, 0.06, "square", 0.06);
+      }
+      return;
+    }
+    this.player.hp = CONFIG.maxHp + this.abilities.maxHpBonus();
+    this.player.hurtGrace = Math.max(this.player.hurtGrace, 1.5);
+    this.materials.sleepT = 2;
+    this.player.addPopup("Ausgeschlafen", "#d7f7ff");
+    this.audio.beep(520, 0.12, "sine", 0.035);
+    setTimeout(() => this.audio.beep(660, 0.12, "sine", 0.025), 150);
+  }
+
+  handleMathAction(){
+    const sign = this.world.nearestMathSign(this.player.center());
+    if (!sign) return;
+    const task = this.math.makeTask();
+    const raw = window.prompt(`${task.text}\nGib die Antwort ein:`);
+    if (raw === null) return;
+    if (this.math.check(raw.trim())){
+      const skin = this.skins.unlockNext();
+      this.player.addPopup(skin ? `Skin frei: ${skin.name}` : "Alle Skins frei!", "#ffdf6a");
+      this.audio.pickup("goldEgg");
+      sign.solved = true;
+    } else {
+      this.player.addPopup("Fast! Versuch spaeter nochmal.", "#ff8b7a");
+      this.audio.beep(130, 0.08, "square", 0.08);
+    }
   }
 
   nearMerchant(){
@@ -379,6 +438,22 @@ export class Game {
       if (!aabb(r.x,r.y,r.w,r.h,z.x,z.y,z.w,z.h)) continue;
       if (z.kind === "slow") p.vx *= Math.pow(z.strength, dt * 8);
       else if (z.kind === "wind") p.vx += z.strength * dt;
+      else if (z.kind === "water"){
+        p.vx *= Math.pow(0.72, dt * 7);
+        p.vy *= Math.pow(0.55, dt * 7);
+        if (this.input.keys.up) p.vy -= 760 * dt;
+        if (this.input.keys.left) p.vx -= 340 * dt;
+        if (this.input.keys.right) p.vx += 340 * dt;
+        p.stompPrimed = false;
+      } else if (z.kind === "lava"){
+        p.vx *= Math.pow(0.82, dt * 5);
+        this.survival.lavaGrace -= dt;
+        if (this.survival.lavaGrace <= 0 && !this.nearMerchant()){
+          this.survival.lavaGrace = 0.8;
+          this.applyDamage(1, "lava");
+          p.addPopup("Heiss!", "#ff8b45");
+        }
+      }
     }
     if (this.world.weather === "wind") p.vx += 35 * dt;
   }
@@ -393,6 +468,15 @@ export class Game {
       e.chargeT = Math.max(e.chargeT, 0.4);
       e.x = cx < zone.x + zone.w/2 ? zone.x - e.w - 8 : zone.x + zone.w + 8;
       e.dir *= -1;
+    }
+    for (const e of this.world.enemies){
+      for (const z of this.world.zones){
+        if (!e.alive || z.kind !== "lava") continue;
+        if (aabb(e.x,e.y,e.w,e.h,z.x,z.y,z.w,z.h)){
+          e.burnT = 0.8;
+          if (e.damage(0.9, e.dir, 40)) this.noteKill(e);
+        }
+      }
     }
     for (let i=this.world.fireballs.length-1;i>=0;i--){
       const f = this.world.fireballs[i];
@@ -540,17 +624,17 @@ export class Game {
     const d = p.dims();
     const fx = p.x + d.w/2 + p.facing*26;
     const fy = p.y + d.h*0.46;
-    const coneX = p.facing > 0 ? fx : fx - 280;
-    const coneY = fy - 58;
-    const coneW = 280, coneH = 116;
+    const coneW = 340, coneH = 148;
+    const coneX = p.facing > 0 ? fx - 8 : fx - coneW + 8;
+    const coneY = fy - coneH/2;
     this.world.particles.push({ kind:"flame", x:fx+p.facing*(24+Math.random()*145), y:fy+(Math.random()*2-1)*38, vx:p.facing*(620+Math.random()*620), vy:(Math.random()*2-1)*150, r:11+Math.random()*17, t:0, life:0.16+Math.random()*0.16 });
     for (const e of this.world.enemies){
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,coneX,coneY,coneW,coneH)) continue;
-      const dead = e.damage(15.5 * p.damageMult() * dt, p.facing, 125);
-      e.x += p.facing * 170 * dt;
+      const dead = e.damage(9.5 * p.damageMult() * this.abilities.damageMult() * dt, p.facing, 90 * this.abilities.knockbackMult());
+      e.x += p.facing * 80 * this.abilities.knockbackMult() * dt;
       if (dead){ this.noteKill(e); this.spawnExplosion(e.x+e.w/2, e.y+e.h/2, 1.05); this.audio.boom(90, 0.10, 0.10); this.audio.enemy(e.type); }
     }
-    this.world.damageBlocks(coneX, coneY, coneW, coneH, 5.5 * dt, this);
+    this.world.damageBlocks(coneX, coneY, coneW, coneH, 4.2 * dt, this);
   }
 
   updateInvulnContact(){
@@ -562,7 +646,7 @@ export class Game {
 
   explodeFireball(f, yOverride=null){
     const fy = yOverride ?? f.y;
-    this.spawnExplosion(f.x, fy, f.charged ? 1.35 : 1.0);
+    this.spawnExplosion(f.x, fy, f.charged ? 1.35 : (f.bomb ? 0.9 + (this.abilities.levels.eggBomb || 1)*0.22 : 1.0));
     if (f.charged){
       const rx = this.cam.x, ry = this.cam.y, rw = CONFIG.canvas.width, rh = CONFIG.canvas.height;
       for (const e of this.world.enemies){
@@ -574,6 +658,7 @@ export class Game {
       return;
     }
     const rad = (f.bomb ? 82 + (this.abilities.levels.eggBomb || 1) * 14 : 66) * this.abilities.blastMult();
+    if (f.bomb && !this.world.safeZoneAt(f.x, fy)) this.world.addCrater(f.x, rad * 0.42, this);
     this.world.damageBlocks(f.x-rad, fy-rad, rad*2, rad*2, f.bomb ? 2.5 : 1.2, this);
     for (const e of this.world.enemies){
       if (!e.alive || !aabb(e.x,e.y,e.w,e.h,f.x-rad,fy-rad,rad*2,rad*2)) continue;
@@ -647,6 +732,19 @@ export class Game {
     this.cameraZoom += (targetZoom - this.cameraZoom) * Math.min(1, dt * 3.5);
   }
 
+  currentBiomeLabel(){
+    return {
+      field:"Feld",
+      jungle:"Tropen",
+      beach:"Strand",
+      desert:"Wueste",
+      snow:"Schnee",
+      darkForest:"Dunkler Wald",
+      volcano:"Vulkanland",
+      swamp:"Sumpf"
+    }[this.survival.biome] || "Feld";
+  }
+
   updateScore(){
     this.maxX = Math.max(this.maxX, this.player.x);
     this.score = Math.max(0, this.maxX - this.startX) * 0.10;
@@ -673,18 +771,23 @@ export class Game {
       this.ctx.fillStyle = `rgba(255,255,220,${(n-0.2)*0.65})`;
       for (let i=0;i<38;i++) this.ctx.fillRect((i*137 + Math.floor(this.cam.x*0.03)) % CONFIG.canvas.width, 28 + ((i*61)%160), i%5===0 ? 2 : 1, i%5===0 ? 2 : 1);
     }
-    const sun = this.skyPoint(t, 440, 398);
-    if (n < 0.6){
+    const sun = this.skyPoint(t, 420, 410);
+    const moon = this.skyPoint((t+0.5)%1, 420, 410);
+    if (n < 0.62 && sun.y < CONFIG.canvas.height+60){
       drawSoftLight(this.ctx, sun.x, sun.y, 190, "255,218,132", 0.20 * (1-n));
       this.ctx.strokeStyle = `rgba(255,235,170,${0.08*(1-n)})`;
       this.ctx.lineWidth = 16;
       for (let i=-2;i<=2;i++){ this.ctx.beginPath(); this.ctx.moveTo(sun.x, sun.y); this.ctx.lineTo(sun.x + i*190, CONFIG.canvas.height); this.ctx.stroke(); }
       this.ctx.lineWidth = 1;
     }
-    this.ctx.fillStyle = "rgba(255,232,132,.96)"; this.ctx.beginPath(); this.ctx.arc(sun.x,sun.y,42,0,Math.PI*2); this.ctx.fill();
-    const moon = this.skyPoint((t+0.5)%1, 440, 398);
-    this.ctx.fillStyle = "rgba(240,244,255,.92)"; this.ctx.beginPath(); this.ctx.arc(moon.x,moon.y,34,0,Math.PI*2); this.ctx.fill();
-    this.ctx.fillStyle = skyTop; this.ctx.beginPath(); this.ctx.arc(moon.x+12,moon.y-6,30,0,Math.PI*2); this.ctx.fill();
+    if (n < 0.74 && sun.y < CONFIG.canvas.height+80){
+      this.ctx.fillStyle = "rgba(255,232,132,.96)"; this.ctx.beginPath(); this.ctx.arc(sun.x,sun.y,42,0,Math.PI*2); this.ctx.fill();
+    }
+    if (n > 0.28 && moon.y < CONFIG.canvas.height+80){
+      const phase = 0.5 + 0.5*Math.sin(Math.floor(this.worldTime / CONFIG.dayLength) * 1.7);
+      this.ctx.fillStyle = "rgba(240,244,255,.92)"; this.ctx.beginPath(); this.ctx.arc(moon.x,moon.y,34,0,Math.PI*2); this.ctx.fill();
+      this.ctx.fillStyle = skyTop; this.ctx.beginPath(); this.ctx.arc(moon.x + 26*(phase-.5), moon.y-3, 31*(0.55+phase*.5), 0, Math.PI*2); this.ctx.fill();
+    }
     this.drawParallaxHills(n);
     this.drawForegroundMist(n);
   }

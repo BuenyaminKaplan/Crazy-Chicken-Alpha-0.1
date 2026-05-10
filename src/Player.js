@@ -38,6 +38,7 @@ export class Player {
     this.popups = [];
     this.justJumped = false;
     this.hidden = false;
+    this.skin = "classic";
   }
 
   dims(){ return { w:this.baseW * this.scale, h:this.baseH * this.scale }; }
@@ -246,14 +247,24 @@ export class Player {
     }
 
     contactShadow(ctx, cx, y+h+5, 18*this.scale, 0.18);
+    const nightMood = Math.max(0, Math.min(1, (time % CONFIG.dayLength) / CONFIG.dayLength > 0.42 && (time % CONFIG.dayLength) / CONFIG.dayLength < 0.86 ? 1 : 0));
+    const bodyColor = this.skin === "ice" ? "#c9f5ff" : this.skin === "lava" ? "#ff9a42" : this.skin === "ghost" ? "rgba(235,245,255,.72)" : this.skin === "raincoat" ? "#ffe45c" : "#ffd34a";
+    const headColor = this.skin === "ice" ? "#e4fbff" : this.skin === "lava" ? "#ffc15f" : this.skin === "ghost" ? "rgba(245,250,255,.82)" : this.skin === "raincoat" ? "#ffeb70" : "#ffdc61";
     ctx.strokeStyle = "#d79a27"; ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(cx-8*this.scale, y+4*this.scale+bob);
     ctx.quadraticCurveTo(cx-2*this.scale, y-7*this.scale+bob, cx+3*this.scale, y+4*this.scale+bob);
     ctx.quadraticCurveTo(cx+8*this.scale, y-8*this.scale+bob, cx+13*this.scale, y+6*this.scale+bob);
     ctx.stroke();
-    ellipse(ctx, cx, cy+2*this.scale, 17*this.scale/airborneSquash, 15*this.scale*airborneSquash, 0, "#ffd34a", "#8f5b1d", 3);
-    ellipse(ctx, cx + 7*this.facing*this.scale, y+12*this.scale + bob, 14*this.scale, 12.5*this.scale, 0.05*this.facing, "#ffdc61", "#8f5b1d", 3);
+    ellipse(ctx, cx, cy+2*this.scale + nightMood*Math.sin(time*25)*0.8, 17*this.scale/airborneSquash, 15*this.scale*airborneSquash, 0, bodyColor, "#8f5b1d", 3);
+    ellipse(ctx, cx + 7*this.facing*this.scale, y+12*this.scale + bob + nightMood*1.5, 14*this.scale, 12.5*this.scale, 0.05*this.facing, headColor, "#8f5b1d", 3);
+    if (this.skin === "raincoat"){
+      ctx.fillStyle = "#ffd21f"; ctx.beginPath(); ctx.arc(cx+6*this.facing*this.scale,y+2*this.scale+bob,13*this.scale,Math.PI,Math.PI*2); ctx.fill();
+    } else if (this.skin === "dragon"){
+      ctx.fillStyle="#78c55a"; for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(cx-12*this.scale+i*8,y+6*this.scale+bob);ctx.lineTo(cx-8*this.scale+i*8,y-3*this.scale+bob);ctx.lineTo(cx-3*this.scale+i*8,y+6*this.scale+bob);ctx.fill();}
+    } else if (this.skin === "knight"){
+      ctx.strokeStyle="#cfd6df"; ctx.lineWidth=4; ctx.beginPath(); ctx.arc(cx,y+12*this.scale+bob,18*this.scale,Math.PI*1.05,Math.PI*1.85); ctx.stroke(); ctx.lineWidth=1;
+    }
     ctx.fillStyle = "rgba(255,190,40,.95)";
     ctx.beginPath(); ctx.ellipse(cx - 5*this.facing*this.scale, y+23*this.scale + bob, 10*this.scale, 6.2*this.scale, 0.25*this.facing, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = "rgba(143,91,29,.58)"; ctx.lineWidth = 1.4;
@@ -269,8 +280,9 @@ export class Player {
       ctx.strokeStyle = "#1b1b1b"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx + 7*this.facing*this.scale, y+10*this.scale + bob); ctx.lineTo(cx + 13*this.facing*this.scale, y+10*this.scale + bob); ctx.stroke();
     } else {
-      ctx.fillStyle = "#fff8e8"; ctx.beginPath(); ctx.arc(cx + 10*this.facing*this.scale, y+10*this.scale + bob, 4.4*this.scale, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#1b1b1b"; ctx.beginPath(); ctx.arc(cx + 11*this.facing*this.scale, y+10*this.scale + bob, 2.1*this.scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#fff8e8"; ctx.beginPath(); ctx.arc(cx + 10*this.facing*this.scale, y+(10+nightMood)*this.scale + bob, 4.4*this.scale, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#1b1b1b"; ctx.beginPath(); ctx.arc(cx + (11+nightMood*Math.sin(time*8))*this.facing*this.scale, y+(10+nightMood)*this.scale + bob, 2.1*this.scale, 0, Math.PI*2); ctx.fill();
+      if (this.hurtFlash > 0){ ctx.strokeStyle="#1b1b1b"; ctx.lineWidth=1.8; ctx.beginPath(); ctx.moveTo(cx+4*this.facing*this.scale,y+4*this.scale+bob); ctx.lineTo(cx+14*this.facing*this.scale,y+7*this.scale+bob); ctx.stroke(); }
     }
     ctx.strokeStyle = "#ff8a2a"; ctx.lineWidth = 3;
     ctx.beginPath();

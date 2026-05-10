@@ -26,7 +26,10 @@ export const CONFIG = {
     "Space tippen = Fireball",
     "Space halten = Screen-Clear",
     "Enter = Pause",
-    "H beim Händler = Handeln"
+    "H beim Händler = Handeln",
+    "S beim Händler = Bett bauen/schlafen",
+    "R am Mathe-Schild = Aufgabe",
+    "K = Skin wechseln"
   ].join(" • ")
 };
 

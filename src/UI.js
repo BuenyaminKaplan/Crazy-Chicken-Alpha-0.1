@@ -104,7 +104,9 @@ export class UI {
       { id:"life", category:"healing", icon:"life", name:"Extra Leben", level:"Versicherung", price:14, canBuy:p.eggPower >= 14, desc:"Gibt dir einen weiteren Versuch.", comment:"Teuer, aber Huehner fallen dramatisch.", action:() => this.game.abilities.buyLife(p), sound:"goldEgg" }
     ];
     const specials = [
-      { id:"active", category:"specials", icon:this.game.abilities.active().id, name:"Aktiv: " + this.game.abilities.active().name, level:"Ausgeruestet", price:null, canBuy:false, desc:"Druecke unten am Boden, um die Faehigkeit zu wechseln.", comment:"Die richtige Ware zur richtigen Zeit." }
+      { id:"active", category:"specials", icon:this.game.abilities.active().id, name:"Aktiv: " + this.game.abilities.active().name, level:"Ausgeruestet", price:null, canBuy:false, desc:"Druecke unten am Boden, um die Faehigkeit zu wechseln.", comment:"Die richtige Ware zur richtigen Zeit." },
+      { id:"bed", category:"specials", icon:"heal", name:this.game.materials.bedBuilt ? "Bett steht bereit" : "Bett bauen", level:this.game.materials.bedBuilt ? "S zum Schlafen" : "Materialien", price:null, canBuy:false, desc:this.game.materials.bedBuilt ? "Druecke S am Haendler, um dich voll zu heilen." : this.game.materials.progressText(), comment:"Ein gutes Nest ist mehr wert als zehn mutige Gackerer." },
+      { id:"skin", category:"specials", icon:"upgrade", name:"Skin: " + this.game.skins.name(), level:"K zum Wechseln", price:null, canBuy:false, desc:"Mathe-Schilder schalten neue Skins frei. Sie geben keine Vorteile.", comment:"Mode ist kein Schaden, aber manchmal Mut." }
     ];
     return [...abilities, ...upgrades, ...healing, ...specials];
   }
@@ -145,7 +147,7 @@ export class UI {
     for (const e of visible){
       const row = document.createElement("button");
       row.className = "shopItem" + (selected && e.id === selected.id ? " selected" : "") + (e.price !== null && !e.canBuy ? " locked" : "");
-      row.innerHTML = `<span class="shopIcon">${e.icon === "fireball" ? "F" : e.icon === "ice" ? "I" : e.icon === "lightning" ? "B" : e.icon === "eggBomb" ? "E" : e.icon === "shield" ? "S" : e.icon === "heal" ? "+" : e.icon === "life" ? "♥" : "↑"}</span><span><strong>${e.name}</strong><small>${e.level}</small></span><span class="price">${e.price === null ? "MAX" : e.price + " Ei"}</span>`;
+      row.innerHTML = `<span class="shopIcon icon-${e.icon}"></span><span><strong>${e.name}</strong><small>${e.level}</small></span><span class="price">${e.price === null ? "MAX" : e.price + " Ei"}</span>`;
       row.onclick = () => { this.shopSelected = e.id; this.game.audio.beep(460, 0.02, "sine", 0.020); this.showShop(); };
       list.appendChild(row);
     }
@@ -153,7 +155,7 @@ export class UI {
     const detail = document.createElement("div");
     detail.className = "shopDetail";
     if (selected){
-      detail.innerHTML = `<div class="bigIcon">${selected.name[0]}</div><h2>${selected.name}</h2><p class="level">${selected.level}</p><p>${selected.desc}</p><blockquote>${selected.comment}</blockquote><p class="cost">${selected.price === null ? "Bereits maximiert" : "Preis: " + selected.price + " Eier"}</p>`;
+      detail.innerHTML = `<div class="bigIcon icon-${selected.icon}"></div><h2>${selected.name}</h2><p class="level">${selected.level}</p><p>${selected.desc}</p><blockquote>${selected.comment}</blockquote><p class="cost">${selected.price === null ? "Bereits maximiert" : "Preis: " + selected.price + " Eier"}</p>`;
       if (selected.price !== null){
         const buy = document.createElement("button");
         buy.className = "btn primaryBuy";
@@ -299,6 +301,12 @@ export class UI {
       ctx.globalAlpha = 0.88;
       ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
       ctx.fillText(buffs.join("  •  "), 230, 42);
+    }
+    const status = this.game.survival.visibleStatus();
+    if (status){
+      ctx.fillStyle = n > 0.48 ? "rgba(210,235,255,.92)" : "rgba(42,58,48,.82)";
+      ctx.font = "bold 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.fillText(`${this.game.currentBiomeLabel()} · ${status}`, 22, 62);
     }
     ctx.restore();
 
