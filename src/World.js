@@ -767,8 +767,12 @@ export class World {
         ctx.strokeStyle = "rgba(220,245,255,.28)";
         for (let i=0;i<z.w;i+=34){ ctx.beginPath(); ctx.moveTo(x+i,y+20+(i%70)); ctx.quadraticCurveTo(x+i+22,y+8+(i%70),x+i+52,y+20+(i%70)); ctx.stroke(); }
       } else if (z.kind === "slow"){
-        ctx.fillStyle = "rgba(94,65,42,.20)";
-        ctx.fillRect(x,y,z.w,z.h);
+        ctx.fillStyle = "rgba(83,58,39,.24)";
+        for (let i=18;i<z.w;i+=44){
+          ctx.beginPath();
+          ctx.ellipse(x+i, y+z.h-22+Math.sin(i)*4, 24+(i%3)*5, 8, 0, 0, Math.PI*2);
+          ctx.fill();
+        }
       } else if (z.kind === "water"){
         drawSoftLight(ctx, x+z.w/2, y+18, z.w*0.56, "110,205,240", 0.10);
         ctx.fillStyle = "rgba(35,74,88,.32)";
@@ -802,17 +806,7 @@ export class World {
         for (let i=0;i<z.w;i+=36){ ctx.beginPath(); ctx.ellipse(x+i+16,y+23+Math.sin(performance.now()/190+i)*5,18,4,0,0,Math.PI*2); ctx.fill(); }
         ctx.strokeStyle = "rgba(70,34,27,.75)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x+8,y+18); ctx.lineTo(x+z.w-8,y+18); ctx.stroke(); ctx.lineWidth = 1;
       } else if (z.kind === "safe" || z.kind === "math"){
-        const vy = (z.visualY ?? z.y) - cam.y;
-        const vh = z.visualH ?? z.h;
-        const g = ctx.createLinearGradient(x, vy, x, vy+vh);
-        g.addColorStop(0, "rgba(255,231,148,.05)");
-        g.addColorStop(1, "rgba(255,231,148,.16)");
-        ctx.fillStyle = g;
-        ctx.fillRect(x,vy,z.w,vh);
-        ctx.strokeStyle = z.kind === "math" ? "rgba(170,225,255,.30)" : "rgba(255,231,148,.24)";
-        ctx.setLineDash([8,8]);
-        ctx.strokeRect(x,vy,z.w,vh);
-        ctx.setLineDash([]);
+        continue;
       } else if (z.kind === "hide"){
         ctx.fillStyle = "rgba(62,38,25,.08)";
         ctx.fillRect(x,y,z.w,z.h);
