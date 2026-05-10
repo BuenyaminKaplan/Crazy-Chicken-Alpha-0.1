@@ -1,63 +1,52 @@
 # Crazy Chicken
 
-Ein kleines 2D-Canvas-Browsergame im Cartoon-Bauernhof-Stil. Du spielst ein Küken, sammelst Eier und Power-ups, schießt Feuerbälle, zerstörst Farmobjekte und kämpfst gegen Schweine, Kühe, Krähen und wütende Hühner.
+Ein 2D-Canvas-Browsergame im Cartoon-Bauernhof-Stil: Küken, Feuerbälle, zerstörbare Farmobjekte, Power-ups und Gegner wie Schwein, Kuh, Krähe und wütendes Huhn.
 
-## Features
+## Starten
 
-- Vanilla JavaScript mit ES-Modulen
-- Canvas-2D-Rendering ohne externe Assets
-- Startscreen, Pause, Game Over, Highscores, Steuerungsansicht
-- Distanz-Score und Top-3-Highscores via `localStorage`
-- Prozedurale Endless-Farmwelt mit Themenabschnitten
-- Gegner: Schwein, Kuh, Krähe, wütendes Huhn
-- zusätzliche Gegner: Charge-Hahn, Stier, Fuchs und Mini-Boss-Hahn
-- Fireball und Charged Fireball mit Screen-Clear
-- Stampfer-Angriff in der Luft
-- Power-ups: normales Ei, Gold-Ei, Chili, Feder
-- Trampoline, zerbrechliche Plattformen, Windzonen, Schlammzonen und explosive Kisten
-- Wettereffekte und Achievements/Statistiken
-- WebAudio-Sounds
-- Tag-Nacht-Zyklus mit weichen Übergängen
-- Touch-Steuerung für mobile Geräte
+Empfohlen wegen ES-Modulen:
+
+```bash
+python3 -m http.server 8080
+```
+
+Dann im Browser öffnen:
+
+```text
+http://localhost:8080/Crazy-Chicken%20Alpha-0.1.html
+```
+
+Manche Browser erlauben ES-Module auch direkt per Dateiöffnung, manche blockieren sie über `file://`.
 
 ## Steuerung
 
 - `←` / `→`: laufen
 - `↑`: springen
 - `↓` im Sprung: Stampfer
-- `Space` tippen: Fireball
-- `Space` halten: Charged Fireball / Screen-Clear
+- `Space`: Fireball, halten für Charged Fireball
 - `Enter`: Pause
 
-Auf Touch-Geräten erscheinen Buttons für links, rechts, springen, Stampfer und Feuer.
+Auf Touch-Geräten erscheinen mobile Buttons.
 
-## Lokal starten
+## Features
 
-Direkt im Browser öffnen:
+- Startscreen, Pause, Game Over, Steuerung, Highscores
+- Top-3-Highscores mit `localStorage`
+- Endless-Welt mit getrennten Biomen, sauberen Übergängen und Safe-Zones
+- Biome: Farm, Wald, Wüste, Schnee, Strand, Tropen, Vulkan, Friedhof und Sumpf
+- Händler- und Mathe-Zonen sind sichere No-Spawn-Bereiche
+- Power-ups: Ei, Gold-Ei, Chili, Feder
+- Mini-Boss-System mit großem Hahn und Warnanzeige
+- Interaktive Arcade-Objekte: Trampoline, fragile Plattformen, Windzonen, Schlammzonen, explosive Kisten
+- Dynamisches Wetter mit Regen, Nebel und Wind
+- Eingebettete Wasser- und Lavaflächen statt schwebender Wasserfälle
+- Achievements und einfache Laufzeit-Statistiken
+- Fireball, Charged Fireball und Stampfer
+- WebAudio-Sounds
+- Tag-Nacht-Zyklus
+- Canvas-Cartoon-Stil ohne externe Assets
 
-```text
-Crazy-Chicken Alpha-0.1.html
-```
-
-Oder aus dem Unterordner:
-
-```text
-Crazy-Chicken-Alpha-0.1/html
-```
-
-Da ES-Module verwendet werden, funktionieren moderne Browser am zuverlässigsten. Falls ein Browser lokale Module blockiert, starte im Projektordner einen einfachen lokalen Server:
-
-```bash
-python3 -m http.server 8080
-```
-
-Dann öffnen:
-
-```text
-http://localhost:8080/Crazy-Chicken%20Alpha-0.1.html
-```
-
-## Dateistruktur
+## Struktur
 
 ```text
 code/
@@ -67,6 +56,7 @@ code/
   src/
     main.js
     Game.js
+    Biomes.js
     Player.js
     Enemy.js
     World.js
@@ -77,12 +67,14 @@ code/
     Storage.js
     Config.js
     Utils.js
+    RenderAssets.js
+    MetaSystems.js
+    Abilities.js
 ```
 
-## Sinnvolle nächste Erweiterungen
+## Spätere Erweiterungen
 
-- kleine Boss-Gegner nach bestimmten Distanzen
-- eigene Level-Biome mit mehr Hindernisregeln
-- Sprite-Sheets statt reinem Canvas-Zeichnen
-- bessere Hitbox-Debug-Ansicht für Balancing
-- Export als GitHub Pages Demo
+- Boss-Gegner und Mini-Events
+- Sprite-Sheets und bessere Animationen
+- Debug-Overlay für Hitboxen
+- GitHub Pages Deployment

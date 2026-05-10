@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Crazy Chicken</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="c" width="960" height="540"></canvas>
+
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true">
+    <div id="menu" class="menu">
+      <h1 id="menuTitle">Crazy Chicken</h1>
+      <p id="menuText"></p>
+      <div class="scores" id="scoreBox"></div>
+      <div class="opts" id="menuOptions"></div>
+    </div>
+  </div>
+
+  <div class="touchControls" aria-label="Touch Steuerung">
+    <div class="touchCluster">
+      <button class="touchBtn" data-key="left">←</button>
+      <button class="touchBtn" data-key="right">→</button>
+    </div>
+    <div class="touchCluster">
+      <button class="touchBtn" data-key="up">↑</button>
+      <button class="touchBtn" data-key="down">↓</button>
+      <button class="touchBtn wide" data-key="fire">Feuer</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

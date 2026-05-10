@@ -1,4 +1,5 @@
 import { CONFIG } from "./Config.js";
+import { BIOMES } from "./Biomes.js";
 import { aabb } from "./Collision.js";
 import { addHighscore, addStat, checkAchievements, noteBestScore } from "./Storage.js";
 import { mixHex } from "./Utils.js";
@@ -230,7 +231,7 @@ export class Game {
       setTimeout(() => this.audio.beep(880, 0.08, "triangle", 0.035), 130);
     }
     this.musicT = night > 0.55 ? 2.8 : 2.2;
-    const peaceful = this.nearMerchant();
+    const peaceful = this.inSafeZone() || this.nearMerchant();
     const base = peaceful ? 420 : (night > 0.55 ? 220 : 330);
     const weatherShift = this.world.weather === "rain" ? -30 : (this.world.weather === "wind" ? 45 : 0);
     this.audio.beep(base + weatherShift, peaceful ? 0.10 : 0.08, "triangle", peaceful ? 0.014 : 0.018);
@@ -298,8 +299,10 @@ export class Game {
   handleMathAction(){
     const sign = this.world.nearestMathSign(this.player.center());
     if (!sign) return;
+    this.player.hurtGrace = Math.max(this.player.hurtGrace, 2.0);
     const task = this.math.makeTask();
     const raw = window.prompt(`${task.text}\nGib die Antwort ein:`);
+    this.player.hurtGrace = Math.max(this.player.hurtGrace, 1.2);
     if (raw === null) return;
     if (this.math.check(raw.trim())){
       const skin = this.skins.unlockNext();
@@ -313,8 +316,12 @@ export class Game {
   }
 
   nearMerchant(){
-    const c = this.player.center();
     return Boolean(this.nearestMerchant());
+  }
+
+  inSafeZone(){
+    const c = this.player.center();
+    return Boolean(this.world.safeZoneAt(c.x, c.y));
   }
 
   nearestMerchant(){
@@ -448,7 +455,7 @@ export class Game {
       } else if (z.kind === "lava"){
         p.vx *= Math.pow(0.82, dt * 5);
         this.survival.lavaGrace -= dt;
-        if (this.survival.lavaGrace <= 0 && !this.nearMerchant()){
+        if (this.survival.lavaGrace <= 0 && !this.inSafeZone()){
           this.survival.lavaGrace = 0.8;
           this.applyDamage(1, "lava");
           p.addPopup("Heiss!", "#ff8b45");
@@ -560,7 +567,7 @@ export class Game {
 
   updateEnemyContacts(){
     const p = this.player;
-    if (p.hidden || this.hideGrace > 0) return;
+    if (p.hidden || this.hideGrace > 0 || this.inSafeZone()) return;
     const pr = p.rect();
     for (const e of this.world.enemies){
       if (!e.alive) continue;
@@ -598,7 +605,7 @@ export class Game {
   }
 
   applyDamage(amount){
-    if (this.player.hidden || this.state === "shop") return false;
+    if (this.player.hidden || this.state === "shop" || this.inSafeZone()) return false;
     const died = this.player.takeDamage(amount, this.difficulty);
     if (!died){
       this.spawnExplosion(this.player.center().x, this.player.center().y, 0.8);
@@ -733,16 +740,7 @@ export class Game {
   }
 
   currentBiomeLabel(){
-    return {
-      field:"Feld",
-      jungle:"Tropen",
-      beach:"Strand",
-      desert:"Wueste",
-      snow:"Schnee",
-      darkForest:"Dunkler Wald",
-      volcano:"Vulkanland",
-      swamp:"Sumpf"
-    }[this.survival.biome] || "Feld";
+    return BIOMES[this.survival.biome]?.label || "Farm";
   }
 
   updateScore(){
@@ -758,11 +756,12 @@ export class Game {
   drawBackground(){
     const n = nightAmount(this.worldTime);
     const t = (this.worldTime % CONFIG.dayLength) / CONFIG.dayLength;
+    const palette = this.biomePalette(this.survival.biome);
     const dusk = Math.sin(t*Math.PI*2);
     const duskAmt = (1 - Math.abs(dusk)) * (1 - Math.abs(n - 0.5)*2);
-    const skyTop = mixHex(mixHex("#79c8ff", "#121936", n), "#f08f66", duskAmt*0.42);
-    const skyMid = mixHex(mixHex("#d6f3ff", "#26355f", n), "#f5b073", duskAmt*0.34);
-    const skyLow = mixHex(mixHex("#f5f0cc", "#5c6d73", n), "#ffcf83", duskAmt*0.45);
+    const skyTop = mixHex(mixHex(palette.sky[0], "#121936", n), "#f08f66", duskAmt*0.42);
+    const skyMid = mixHex(mixHex(palette.sky[1], "#26355f", n), "#f5b073", duskAmt*0.34);
+    const skyLow = mixHex(mixHex(palette.sky[2], "#5c6d73", n), "#ffcf83", duskAmt*0.45);
     const g = this.ctx.createLinearGradient(0,0,0,CONFIG.canvas.height);
     g.addColorStop(0, skyTop); g.addColorStop(0.62, skyMid); g.addColorStop(1, skyLow);
     this.ctx.fillStyle = g; this.ctx.fillRect(0,0,CONFIG.canvas.width,CONFIG.canvas.height);
@@ -771,24 +770,24 @@ export class Game {
       this.ctx.fillStyle = `rgba(255,255,220,${(n-0.2)*0.65})`;
       for (let i=0;i<38;i++) this.ctx.fillRect((i*137 + Math.floor(this.cam.x*0.03)) % CONFIG.canvas.width, 28 + ((i*61)%160), i%5===0 ? 2 : 1, i%5===0 ? 2 : 1);
     }
-    const sun = this.skyPoint(t, 420, 410);
-    const moon = this.skyPoint((t+0.5)%1, 420, 410);
-    if (n < 0.62 && sun.y < CONFIG.canvas.height+60){
+    const sun = this.celestialPoint(t, 0);
+    const moon = this.celestialPoint(t, Math.PI);
+    if (n < 0.52 && sun.y < CONFIG.canvas.height+60){
       drawSoftLight(this.ctx, sun.x, sun.y, 190, "255,218,132", 0.20 * (1-n));
       this.ctx.strokeStyle = `rgba(255,235,170,${0.08*(1-n)})`;
       this.ctx.lineWidth = 16;
       for (let i=-2;i<=2;i++){ this.ctx.beginPath(); this.ctx.moveTo(sun.x, sun.y); this.ctx.lineTo(sun.x + i*190, CONFIG.canvas.height); this.ctx.stroke(); }
       this.ctx.lineWidth = 1;
     }
-    if (n < 0.74 && sun.y < CONFIG.canvas.height+80){
+    if (n < 0.55 && sun.y < CONFIG.canvas.height+80){
       this.ctx.fillStyle = "rgba(255,232,132,.96)"; this.ctx.beginPath(); this.ctx.arc(sun.x,sun.y,42,0,Math.PI*2); this.ctx.fill();
     }
-    if (n > 0.28 && moon.y < CONFIG.canvas.height+80){
+    if (n > 0.48 && moon.y < CONFIG.canvas.height+80){
       const phase = 0.5 + 0.5*Math.sin(Math.floor(this.worldTime / CONFIG.dayLength) * 1.7);
       this.ctx.fillStyle = "rgba(240,244,255,.92)"; this.ctx.beginPath(); this.ctx.arc(moon.x,moon.y,34,0,Math.PI*2); this.ctx.fill();
       this.ctx.fillStyle = skyTop; this.ctx.beginPath(); this.ctx.arc(moon.x + 26*(phase-.5), moon.y-3, 31*(0.55+phase*.5), 0, Math.PI*2); this.ctx.fill();
     }
-    this.drawParallaxHills(n);
+    this.drawParallaxHills(n, palette);
     this.drawForegroundMist(n);
   }
 
@@ -809,26 +808,57 @@ export class Game {
     ctx.restore();
   }
 
-  drawParallaxHills(n){
+  drawParallaxHills(n, palette=this.biomePalette(this.survival.biome)){
     const ctx = this.ctx;
     const far = -((this.cam.x*0.10) % 900);
-    ctx.fillStyle = mixHex("#8ab6a0", "#2d4053", n);
+    ctx.fillStyle = mixHex(palette.hills[0], palette.nightHills[0], n);
     for (let off=far-900; off<CONFIG.canvas.width+900; off+=900){
       ctx.beginPath(); ctx.moveTo(off,385);
-      ctx.quadraticCurveTo(off+220,250,off+460,350);
-      ctx.quadraticCurveTo(off+680,420,off+900,325);
+      if (palette.shape === "desert"){
+        ctx.quadraticCurveTo(off+210,330,off+455,352);
+        ctx.quadraticCurveTo(off+680,375,off+900,330);
+      } else if (palette.shape === "volcano"){
+        ctx.lineTo(off+260,250); ctx.lineTo(off+430,382); ctx.lineTo(off+620,290); ctx.lineTo(off+900,346);
+      } else if (palette.shape === "snow"){
+        ctx.lineTo(off+240,245); ctx.lineTo(off+315,315); ctx.lineTo(off+430,230); ctx.lineTo(off+600,360); ctx.lineTo(off+900,300);
+      } else {
+        ctx.quadraticCurveTo(off+220,250,off+460,350);
+        ctx.quadraticCurveTo(off+680,420,off+900,325);
+      }
       ctx.lineTo(off+900,CONFIG.canvas.height); ctx.lineTo(off,CONFIG.canvas.height); ctx.fill();
     }
     const mid = -((this.cam.x*0.20) % 760);
-    ctx.fillStyle = mixHex("#74bf75", "#355a57", n);
+    ctx.fillStyle = mixHex(palette.hills[1], palette.nightHills[1], n);
     for (let off=mid-760; off<CONFIG.canvas.width+760; off+=760){
       ctx.beginPath(); ctx.moveTo(off,405);
+      if (palette.shape === "beach"){
+        ctx.lineTo(off+760,360); ctx.lineTo(off+760,CONFIG.canvas.height); ctx.lineTo(off,CONFIG.canvas.height); ctx.fill();
+        ctx.fillStyle = mixHex("#6bb9d7", "#28495e", n);
+        ctx.fillRect(0, 350, CONFIG.canvas.width, 90);
+        ctx.fillStyle = mixHex(palette.hills[1], palette.nightHills[1], n);
+        continue;
+      }
       ctx.quadraticCurveTo(off+210,320,off+405,392);
       ctx.quadraticCurveTo(off+590,464,off+760,378);
       ctx.lineTo(off+760,CONFIG.canvas.height); ctx.lineTo(off,CONFIG.canvas.height); ctx.fill();
     }
+    if (palette.shape === "desert"){
+      ctx.fillStyle = mixHex("#c9a45e", "#5a4a38", n);
+      for (let i=0;i<2;i++){
+        const px = ((i*430 - this.cam.x*0.16) % (CONFIG.canvas.width+520)) - 260;
+        ctx.beginPath(); ctx.moveTo(px,402); ctx.lineTo(px+85,306); ctx.lineTo(px+180,402); ctx.closePath(); ctx.fill();
+      }
+    }
+    if (palette.shape === "graveyard"){
+      ctx.fillStyle = `rgba(18,24,32,${0.20 + n*0.22})`;
+      for (let i=0;i<7;i++){
+        const tx = ((i*170 - this.cam.x*0.18) % (CONFIG.canvas.width+220)) - 110;
+        ctx.fillRect(tx, 333, 10, 70);
+        ctx.beginPath(); ctx.moveTo(tx-28,360); ctx.lineTo(tx+5,310); ctx.lineTo(tx+34,360); ctx.fill();
+      }
+    }
     const near = -((this.cam.x*0.34) % 96);
-    for (let x=near-40; x<CONFIG.canvas.width+60; x+=32) drawGrassClump(ctx, x, CONFIG.groundY-42, this.worldTime*2 + x, 1.2, mixHex("#328939", "#1f4739", n));
+    for (let x=near-40; x<CONFIG.canvas.width+60; x+=32) drawGrassClump(ctx, x, CONFIG.groundY-42, this.worldTime*2 + x, 1.2, mixHex(palette.hills[2], palette.nightHills[2], n));
   }
 
   drawForegroundMist(n){
@@ -843,9 +873,25 @@ export class Game {
     }
   }
 
-  skyPoint(t, radius, yBase){
-    const a = Math.PI * (1.08 + t);
-    return { x:CONFIG.canvas.width*0.5 + Math.cos(a)*radius, y:yBase + Math.sin(a)*radius };
+  celestialPoint(t, offset=0){
+    const a = t * Math.PI * 2 - Math.PI / 2 + offset;
+    return {
+      x:CONFIG.canvas.width*0.5 + Math.cos(a)*430,
+      y:CONFIG.canvas.height*0.77 + Math.sin(a)*350
+    };
+  }
+
+  biomePalette(biome){
+    const spec = BIOMES[biome] || BIOMES.farm;
+    const shape = biome === "desert" ? "desert" : biome === "volcano" ? "volcano" : biome === "snow" ? "snow" : biome === "beach" ? "beach" : biome === "graveyard" ? "graveyard" : "hills";
+    const nightHills = {
+      desert:["#5f503a","#46382c","#3b3029"],
+      volcano:["#2d2528","#211b20","#19171a"],
+      snow:["#566b83","#43566d","#34465b"],
+      beach:["#395f64","#284d55","#214345"],
+      graveyard:["#26363a","#202d32","#192528"]
+    }[biome] || ["#2d4053","#355a57","#1f4739"];
+    return { sky:spec.sky, hills:spec.hills, nightHills, shape };
   }
 
   drawInteractionHints(ctx){

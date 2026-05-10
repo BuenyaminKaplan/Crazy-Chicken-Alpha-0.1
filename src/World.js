@@ -1,4 +1,5 @@
 import { CONFIG } from "./Config.js";
+import { BIOMES, biomeThemeAt, getBiomeState } from "./Biomes.js";
 import { aabb } from "./Collision.js";
 import { chance, mixHex, pick, rand, smoothstep } from "./Utils.js";
 import { Enemy } from "./Enemy.js";
@@ -18,6 +19,7 @@ export class World {
     this.craters = [];
     this.weather = "clear";
     this.nextBossX = 4200;
+    this.nextMerchantX = 5600;
     this.nextGenX = 0;
   }
 
@@ -33,6 +35,7 @@ export class World {
     this.craters.length = 0;
     this.weather = "clear";
     this.nextBossX = 4200;
+    this.nextMerchantX = 5600 + Math.random()*900;
     this.nextGenX = 0;
     for (let i=0;i<24;i++) this.addBlock(72 + i*CONFIG.tile, CONFIG.groundY-2*CONFIG.tile, CONFIG.tile, CONFIG.tile*2, "dirt", 2);
     this.generateTo(4400, difficulty, true);
@@ -54,7 +57,39 @@ export class World {
   }
 
   safeZoneAt(x, y){
-    return this.zones.find(z => z.kind === "safe" && x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) || null;
+    return this.zones.find(z => (z.kind === "safe" || z.kind === "math") && x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) || null;
+  }
+
+  zoneIntersects(x, w, kinds=["safe","merchant","math","hide"], margin=0){
+    return this.zones.some(z => kinds.includes(z.kind) && x < z.x + z.w + margin && x + w > z.x - margin);
+  }
+
+  canPlaceSafeZone(x, w){
+    const blocking = ["safe","merchant","math","hide","lava","water","slow"];
+    return !this.zoneIntersects(x, w, blocking, 180);
+  }
+
+  canPlaceHazard(x, w){
+    return !this.zoneIntersects(x, w, ["safe","merchant","math","hide"], 220);
+  }
+
+  clearSafeArea(x, w){
+    const minX = x, maxX = x + w;
+    for (let i=this.blocks.length-1;i>=0;i--){
+      const b = this.blocks[i];
+      if (b.x < maxX && b.x + b.w > minX && b.y > CONFIG.groundY - 260) this.blocks.splice(i,1);
+    }
+    for (let i=this.decor.length-1;i>=0;i--){
+      const d = this.decor[i];
+      const dw = d.w || 80;
+      if (d.x < maxX && d.x + dw > minX && !["bed"].includes(d.kind)) this.decor.splice(i,1);
+    }
+    for (let i=this.collectibles.length-1;i>=0;i--) if (this.collectibles[i].x > minX && this.collectibles[i].x < maxX) this.collectibles.splice(i,1);
+    for (let i=this.enemies.length-1;i>=0;i--) if (this.enemies[i].x > minX-80 && this.enemies[i].x < maxX+80) this.enemies.splice(i,1);
+    for (let i=this.zones.length-1;i>=0;i--){
+      const z = this.zones[i];
+      if (["lava","water","slow","wind","hide","math"].includes(z.kind) && z.x < maxX && z.x + z.w > minX) this.zones.splice(i,1);
+    }
   }
 
   nearestMathSign(c){
@@ -96,7 +131,7 @@ export class World {
   }
 
   segmentTheme(index){
-    return ["field","barn","mud","tractor","night"][index % 5];
+    return biomeThemeAt(this.nextGenX, index);
   }
 
   generateTo(xMax, difficulty, first=false){
@@ -104,8 +139,9 @@ export class World {
     while (this.nextGenX < xMax){
       const len = 1450 + Math.floor(Math.random()*850);
       const baseX = this.nextGenX;
-      const theme = first && baseX < 1300 ? "start" : this.segmentTheme(segIndex++);
-      this.makeSegment(baseX, len, theme, difficulty);
+      const biomeState = getBiomeState(baseX + len * 0.45);
+      const theme = first && baseX < 1300 ? "start" : biomeThemeAt(baseX + len * 0.45, segIndex++);
+      this.makeSegment(baseX, len, theme, difficulty, biomeState);
       if (baseX > this.nextBossX){
         this.spawnBoss(baseX + 980, difficulty);
         this.nextBossX += 5200 + Math.random()*2600;
@@ -114,36 +150,40 @@ export class World {
     }
   }
 
-  makeSegment(baseX, len, theme, difficulty){
-    if (theme !== "start" && chance(0.65)){
+  makeSegment(baseX, len, theme, difficulty, biomeState=getBiomeState(baseX)){
+    const biome = theme === "start" ? "farm" : biomeState.id;
+    const spec = BIOMES[biome] || BIOMES.farm;
+    const transition = theme === "transition" || biomeState.phase !== "active";
+    if (theme !== "start" && !transition && chance(0.60)){
       const steps = 5 + Math.floor(Math.random()*6);
-      for (let i=0;i<steps;i++) this.addGrid(baseX+150+i*CONFIG.tile, CONFIG.groundY-2*CONFIG.tile-i*14, 2, 2, theme === "mud" ? "mud" : "dirt", 2);
+      for (let i=0;i<steps;i++) this.addGrid(baseX+150+i*CONFIG.tile, CONFIG.groundY-2*CONFIG.tile-i*14, 2, 2, spec.ground, 2);
     }
 
-    if (theme !== "start" && chance(0.76)){
+    if (theme !== "start" && !transition && chance(0.72)){
       const y = CONFIG.groundY - (5 + Math.floor(Math.random()*3))*CONFIG.tile;
       const tiles = 9 + Math.floor(Math.random()*11);
-      this.addGrid(baseX+520, y, tiles, 1, "wood", 2);
-      for (let i=0;i<tiles;i+=7) this.addGrid(baseX+520+i*CONFIG.tile, y+CONFIG.tile, 1, 2, "wood", 2);
+      this.addGrid(baseX+520, y, tiles, 1, spec.platform, 2);
+      for (let i=0;i<tiles;i+=7) this.addGrid(baseX+520+i*CONFIG.tile, y+CONFIG.tile, 1, 2, spec.platform, 2);
     }
 
-    if (theme === "barn") this.spawnBarn(baseX+800);
-    else if (theme === "tractor") this.spawnTractor(baseX+760);
-    else if (theme === "mud") this.spawnMud(baseX+720);
-    else if (theme === "field") this.spawnField(baseX+760);
-    else if (theme === "night") this.spawnTreeRock(baseX+780);
-    this.spawnBiomeSetPiece(baseX, theme);
+    this.spawnBiomeDecor(baseX, len, theme, biome, transition);
 
-    if (theme !== "start" && baseX > 1800 && chance(0.24)) this.spawnMarket(baseX + Math.min(len - 360, 860));
+    if (theme !== "start" && baseX > this.nextMerchantX){
+      const x = baseX + Math.min(len - 420, 820);
+      if (this.canPlaceSafeZone(x - 170, 460)){
+        this.spawnMarket(x);
+        this.nextMerchantX = x + 14500 + Math.random()*7000;
+      }
+    }
 
-    this.spawnCollectibleTrail(baseX, len, theme);
-    if (theme !== "start") this.spawnEnemies(baseX, len, theme, difficulty);
-    if (theme !== "start" && chance(0.22)) this.spawnChallenge(baseX + 620, theme);
-    if (chance(0.12)) this.weather = pick(["rain","fog","wind","clear"]);
+    this.spawnCollectibleTrail(baseX, len, theme, biome);
+    if (theme !== "start" && !transition) this.spawnEnemies(baseX, len, biome, difficulty);
+    if (theme !== "start" && !transition && chance(0.22)) this.spawnChallenge(baseX + 620, biome);
+    if (chance(0.12)) this.weather = pick(spec.weather || ["clear"]);
   }
 
-  spawnCollectibleTrail(baseX, len, theme){
-    if (Math.random() < 0.24) return;
+  spawnCollectibleTrail(baseX, len, theme, biome="farm"){
+    if (Math.random() < (biome === "desert" || biome === "volcano" ? 0.34 : 0.22)) return;
     const count = 3 + Math.floor(Math.random()*4);
     const start = baseX + 260 + Math.random()*220;
     const arc = Math.random() < 0.42;
@@ -151,27 +191,21 @@ export class World {
       const ex = start + i * (70 + Math.random()*28);
       if (ex > baseX + len - 220) break;
       const wave = arc ? Math.sin(i/(Math.max(1,count-1))*Math.PI) * 74 : (i%2)*34;
-      const ey = theme === "barn" ? CONFIG.groundY-165-wave : (Math.random() < 0.62 ? CONFIG.groundY-92-wave : CONFIG.groundY-184-wave*0.35);
+      const ey = theme === "barn" || biome === "forest" ? CONFIG.groundY-165-wave : (Math.random() < 0.62 ? CONFIG.groundY-92-wave : CONFIG.groundY-184-wave*0.35);
       const roll = Math.random();
       const kind = roll < 0.07 ? "goldEgg" : (roll < 0.14 ? "chili" : (roll < 0.18 ? "feather" : "egg"));
       this.spawnCollectible(ex, ey, kind);
     }
   }
 
-  spawnEnemies(baseX, len, theme, difficulty){
+  spawnEnemies(baseX, len, biome, difficulty){
     const count = Math.floor((2 + Math.random()*4) * difficulty.enemyRate);
-    const typesByTheme = {
-      field: ["pig","angryChicken","pig","rooster"],
-      barn: ["cow","pig","crow","fox"],
-      mud: ["pig","cow","bull"],
-      tractor: ["angryChicken","pig","cow","bull"],
-      night: ["crow","pig","angryChicken","fox"]
-    };
+    const pool = BIOMES[biome]?.enemies || BIOMES.farm.enemies;
     for (let i=0;i<count;i++){
       const x = baseX + 430 + Math.random()*(len-620);
       if (x < 900) continue;
-      if (this.zones.some(z => z.kind === "safe" && x > z.x - 120 && x < z.x + z.w + 120)) continue;
-      this.enemies.push(new Enemy(pick(typesByTheme[theme] || ["pig"]), x, difficulty));
+      if (this.zoneIntersects(x - 60, 120, ["safe","merchant","math","lava","water"], 160)) continue;
+      this.enemies.push(new Enemy(pick(pool), x, difficulty));
     }
   }
 
@@ -180,14 +214,22 @@ export class World {
     this.enemies.push(new Enemy("giantRooster", x, difficulty));
   }
 
-  spawnChallenge(x, theme){
-    if (theme === "mud"){
+  spawnChallenge(x, biome){
+    if (this.zoneIntersects(x - 60, 440, ["safe","merchant","math"], 180)) return;
+    if (biome === "swamp"){
       this.zones.push({ kind:"slow", x:x, y:CONFIG.groundY-70, w:240, h:90, strength:0.55 });
       this.addGrid(x, CONFIG.groundY-CONFIG.tile, 10, 1, "mud", 1);
-    } else if (theme === "tractor"){
+    } else if (biome === "volcano"){
+      if (this.canPlaceHazard(x, 300)) this.zones.push({ kind:"lava", x:x, y:CONFIG.groundY-32, w:300, h:78, trench:true });
+    } else if (biome === "beach"){
+      if (this.canPlaceHazard(x, 310)) this.zones.push({ kind:"water", x:x, y:CONFIG.groundY-30, w:310, h:76, basin:true });
+    } else if (biome === "desert"){
+      this.zones.push({ kind:"slow", x:x, y:CONFIG.groundY-52, w:280, h:70, strength:0.72 });
+      this.addGrid(x+250, CONFIG.groundY-4*CONFIG.tile, 4, 1, "rock", 3);
+    } else if (biome === "farm"){
       this.addGrid(x, CONFIG.groundY-2*CONFIG.tile, 2, 2, "crate", 1);
       this.addGrid(x+220, CONFIG.groundY-5*CONFIG.tile, 5, 1, "break", 1);
-    } else if (theme === "field"){
+    } else if (biome === "forest" || biome === "tropics"){
       this.addBlock(x, CONFIG.groundY-2*CONFIG.tile, CONFIG.tile*3, CONFIG.tile, "trampoline", 2);
       this.addGrid(x+260, CONFIG.groundY-6*CONFIG.tile, 6, 1, "moving", 2);
     } else {
@@ -202,8 +244,8 @@ export class World {
     this.decor.push({ kind:"grass", x:x-120, y:CONFIG.groundY, w:420 });
     this.decor.push({ kind:"flowers", x:x-80, y:CONFIG.groundY, w:360 });
     if (chance(0.55)) this.decor.push({ kind:"sign", x:x+350, y:CONFIG.groundY-58, label:"EIER" });
-    if (chance(0.36)) this.decor.push({ kind:"mathSign", x:x+520, y:CONFIG.groundY-74, label:"MATHE" });
-    if (chance(0.38)) this.decor.push({ kind:"scarecrow", x:x+550, y:CONFIG.groundY-112 });
+    const mathPlaced = chance(0.34) && this.spawnMathSign(x+520);
+    if (!mathPlaced && chance(0.38)) this.decor.push({ kind:"scarecrow", x:x+550, y:CONFIG.groundY-112 });
   }
   spawnBarn(x){
     const barnX = x + 460;
@@ -214,32 +256,84 @@ export class World {
     this.addGrid(x, CONFIG.groundY-3*CONFIG.tile, 4, 3, "well", 3);
     this.carve(x+CONFIG.tile, CONFIG.groundY-2*CONFIG.tile, 2*CONFIG.tile, CONFIG.tile, "well");
   }
+
+  spawnMathSign(x){
+    if (!this.canPlaceSafeZone(x - 92, 184)) return false;
+    this.zones.push({ kind:"math", x:x-92, y:0, w:184, h:CONFIG.groundY+72, visualY:CONFIG.groundY-112, visualH:132 });
+    this.decor.push({ kind:"mathSign", x:x, y:CONFIG.groundY-74, label:"MATHE" });
+    return true;
+  }
+
   spawnMud(x){
     this.addGrid(x, CONFIG.groundY-CONFIG.tile, 9, 1, "mud", 1);
     this.addGrid(x+260, CONFIG.groundY-2*CONFIG.tile, 5, 2, "hay", 2);
     this.decor.push({ kind:"stones", x:x-70, y:CONFIG.groundY, w:540 });
   }
 
-  spawnBiomeSetPiece(baseX, theme){
-    const biome = ["field","jungle","beach","desert","snow","darkForest","volcano","swamp"][Math.floor(Math.max(0, baseX)/2400)%8];
+  spawnBiomeDecor(baseX, len, theme, biome, transition=false){
+    if (theme === "start"){
+      this.spawnField(baseX+760);
+      this.decor.push({ kind:"sign", x:baseX+420, y:CONFIG.groundY-58, label:"START" });
+      return;
+    }
+    if (transition){
+      this.decor.push({ kind:"transitionGate", x:baseX+len*0.5, y:CONFIG.groundY-124, label:"NEUER WEG" });
+      this.decor.push({ kind:"grass", x:baseX+260, y:CONFIG.groundY, w:Math.min(640, len-420) });
+      if (chance(0.22)) this.spawnMathSign(baseX+len*0.66);
+      return;
+    }
+
+    if (biome === "farm"){
+      if (theme === "barn") this.spawnBarn(baseX+800);
+      else if (theme === "tractor") this.spawnTractor(baseX+760);
+      else this.spawnField(baseX+760);
+      return;
+    }
+    if (biome === "forest"){
+      this.spawnTreeRock(baseX+760);
+      this.decor.push({ kind:"flowers", x:baseX+420, y:CONFIG.groundY, w:430 });
+      if (chance(0.18)) this.spawnMathSign(baseX+1020);
+      return;
+    }
     if (biome === "desert"){
+      this.decor.push({ kind:"sandGrass", x:baseX+220, y:CONFIG.groundY, w:len-360 });
       this.decor.push({ kind:"pyramid", x:baseX+980, y:CONFIG.groundY-138, w:180, h:138 });
       this.decor.push({ kind:"cactus", x:baseX+640, y:CONFIG.groundY-92 });
-    } else if (biome === "snow"){
+      if (chance(0.28)) this.decor.push({ kind:"cactus", x:baseX+1260, y:CONFIG.groundY-78 });
+      return;
+    }
+    if (biome === "snow"){
       this.decor.push({ kind:"snowPine", x:baseX+720, y:CONFIG.groundY-150 });
+      this.decor.push({ kind:"snowPine", x:baseX+1040, y:CONFIG.groundY-130 });
       this.weather = "fog";
-    } else if (biome === "beach"){
-      this.zones.push({ kind:"water", x:baseX+680, y:CONFIG.groundY-42, w:280, h:74 });
-      this.decor.push({ kind:"waterfall", x:baseX+890, y:CONFIG.groundY-250, w:90, h:250 });
-    } else if (biome === "volcano"){
-      this.zones.push({ kind:"lava", x:baseX+620, y:CONFIG.groundY-38, w:260, h:68 });
-      this.decor.push({ kind:"volcano", x:baseX+900, y:CONFIG.groundY-230, w:220, h:230 });
-    } else if (biome === "jungle"){
+      return;
+    }
+    if (biome === "beach"){
+      this.decor.push({ kind:"palm", x:baseX+700, y:CONFIG.groundY-160 });
+      this.decor.push({ kind:"shells", x:baseX+450, y:CONFIG.groundY, w:420 });
+      if (this.canPlaceHazard(baseX+780, 300)) this.zones.push({ kind:"water", x:baseX+780, y:CONFIG.groundY-30, w:300, h:76, basin:true });
+      return;
+    }
+    if (biome === "tropics"){
       this.decor.push({ kind:"palm", x:baseX+700, y:CONFIG.groundY-160 });
       this.decor.push({ kind:"vines", x:baseX+850, y:CONFIG.groundY-180, w:160 });
-    } else if (biome === "swamp"){
-      this.zones.push({ kind:"slow", x:baseX+630, y:CONFIG.groundY-64, w:260, h:90, strength:0.42 });
+      this.decor.push({ kind:"flowers", x:baseX+520, y:CONFIG.groundY, w:360 });
+      return;
+    }
+    if (biome === "volcano"){
+      this.decor.push({ kind:"volcano", x:baseX+900, y:CONFIG.groundY-230, w:220, h:230 });
+      this.decor.push({ kind:"ash", x:baseX+420, y:CONFIG.groundY, w:len-520 });
+      if (this.canPlaceHazard(baseX+620, 300)) this.zones.push({ kind:"lava", x:baseX+620, y:CONFIG.groundY-32, w:300, h:78, trench:true });
+      return;
+    }
+    if (biome === "graveyard"){
+      this.spawnGraveyard(baseX+720);
+      return;
+    }
+    if (biome === "swamp"){
+      if (this.canPlaceHazard(baseX+630, 260)) this.zones.push({ kind:"slow", x:baseX+630, y:CONFIG.groundY-64, w:260, h:90, strength:0.42 });
       this.decor.push({ kind:"willow", x:baseX+790, y:CONFIG.groundY-155 });
+      this.decor.push({ kind:"stones", x:baseX+420, y:CONFIG.groundY, w:540 });
     }
   }
   spawnTractor(x){
@@ -258,6 +352,18 @@ export class World {
       this.carve(x, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
       this.carve(x+4*CONFIG.tile, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
     }
+    this.decor.push({ kind:"grass", x:x-180, y:CONFIG.groundY, w:420 });
+  }
+
+  spawnGraveyard(x){
+    if (chance(0.5)){
+      this.addGrid(x+CONFIG.tile, CONFIG.groundY-5*CONFIG.tile, 2, 5, "treeTrunk", 3);
+      this.addGrid(x-CONFIG.tile, CONFIG.groundY-8*CONFIG.tile, 6, 3, "treeLeaf", 2);
+    } else {
+      this.addGrid(x, CONFIG.groundY-3*CONFIG.tile, 5, 3, "rock", 5);
+      this.carve(x, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
+      this.carve(x+4*CONFIG.tile, CONFIG.groundY-3*CONFIG.tile, CONFIG.tile, CONFIG.tile, "rock");
+    }
     this.decor.push({ kind:"fireflies", x:x-90, y:CONFIG.groundY-180, w:390 });
     this.decor.push({ kind:"graveyard", x:x+260, y:CONFIG.groundY-82, w:260 });
     this.decor.push({ kind:"ghost", x:x+520, y:CONFIG.groundY-178, w:60, h:82 });
@@ -265,7 +371,8 @@ export class World {
   }
 
   spawnMarket(x){
-    this.zones.push({ kind:"safe", x:x-140, y:CONFIG.groundY-140, w:380, h:160, strength:0 });
+    this.clearSafeArea(x-170, 460);
+    this.zones.push({ kind:"safe", x:x-170, y:0, w:460, h:CONFIG.groundY+76, visualY:CONFIG.groundY-148, visualH:172, strength:0 });
     this.zones.push({ kind:"merchant", x:x+18, y:CONFIG.groundY-130, w:150, h:140, cx:x+98, cy:CONFIG.groundY-70, radius:CONFIG.merchantInteractionRadius, promptX:x+98, promptY:CONFIG.groundY-132 });
     this.decor.push({ kind:"campfire", x:x-68, y:CONFIG.groundY-30 });
     this.decor.push({ kind:"merchant", x:x+60, y:CONFIG.groundY-92, w:76, h:92 });
@@ -334,7 +441,7 @@ export class World {
         }
       }
       const p = game.player, pc = p.center();
-      if (!game.nearMerchant() && Math.abs(pc.x-c.x) < c.r*.52 && p.y+p.dims().h >= CONFIG.groundY-8) game.applyDamage(1, "crater");
+      if (!game.inSafeZone?.() && Math.abs(pc.x-c.x) < c.r*.52 && p.y+p.dims().h >= CONFIG.groundY-8) game.applyDamage(1, "crater");
     }
   }
 
@@ -416,13 +523,15 @@ export class World {
 
   draw(ctx, cam, worldTime){
     const n = nightAmount(worldTime);
+    const biome = getBiomeState(cam.x + CONFIG.canvas.width * 0.45).id;
+    const ground = groundPalette(biome);
     this.drawDecor(ctx, cam, worldTime, "back");
     const grassGrad = ctx.createLinearGradient(0, CONFIG.groundY-cam.y, 0, CONFIG.canvas.height);
-    grassGrad.addColorStop(0, mixHex("#65b65e", "#3f7447", n));
-    grassGrad.addColorStop(1, mixHex("#3e7e41", "#253b2e", n));
+    grassGrad.addColorStop(0, mixHex(ground.top, ground.nightTop, n));
+    grassGrad.addColorStop(1, mixHex(ground.low, ground.nightLow, n));
     ctx.fillStyle = grassGrad;
     ctx.fillRect(-200, CONFIG.groundY-cam.y, CONFIG.canvas.width+400, CONFIG.canvas.height-CONFIG.groundY+200);
-    ctx.fillStyle = mixHex("#3f833e", "#315332", n);
+    ctx.fillStyle = mixHex(ground.edge, ground.nightEdge, n);
     ctx.fillRect(-200, CONFIG.groundY-cam.y, CONFIG.canvas.width+400, 10);
     this.drawDecor(ctx, cam, worldTime, "front");
     this.drawCraters(ctx, cam);
@@ -458,12 +567,15 @@ export class World {
   }
 
   drawDecor(ctx, cam, worldTime=0, layer="front"){
+    const n = nightAmount(worldTime);
     for (const d of this.decor){
-      const worldLocked = ["barn","merchant","campfire","coop","sign","scarecrow","windmill","laundry"].includes(d.kind);
+      if (d.kind === "ghost" && n <= 0.55) continue;
+      if (d.kind === "fireflies" && n <= 0.45) continue;
+      const worldLocked = ["barn","merchant","campfire","coop","sign","mathSign","transitionGate","scarecrow","windmill","laundry"].includes(d.kind);
       const x = d.x - cam.x * (worldLocked ? 1 : 0.92);
       if (x < -260 || x > CONFIG.canvas.width+260) continue;
-      if (layer === "back" && !["barn","windmill","laundry","fireflies","ghost","deadTree"].includes(d.kind)) continue;
-      if (layer === "front" && ["barn","windmill","laundry","fireflies","ghost","deadTree"].includes(d.kind)) continue;
+      if (layer === "back" && !["barn","windmill","laundry","fireflies","ghost","deadTree","pyramid","volcano","snowPine","palm","willow"].includes(d.kind)) continue;
+      if (layer === "front" && ["barn","windmill","laundry","fireflies","ghost","deadTree","pyramid","volcano","snowPine","palm","willow"].includes(d.kind)) continue;
       if (d.kind === "grass"){
         for (let i=0;i<d.w;i+=20) drawGrassClump(ctx, x+i, d.y-cam.y, worldTime*3+i, 0.9 + (i%3)*0.08, "rgba(35,115,51,.68)");
       } else if (d.kind === "flowers"){
@@ -473,6 +585,13 @@ export class World {
         for (let i=0;i<d.w;i+=76) ellipse(ctx, x+i+16, y-8-(i%2)*3, 12+(i%3)*3, 7, -0.1, "#9da4a4", "rgba(64,58,52,.55)", 1.5);
       } else if (d.kind === "sign"){
         drawPlankSign(ctx, x, d.y-cam.y, d.label);
+      } else if (d.kind === "transitionGate"){
+        const y = d.y - cam.y;
+        ctx.strokeStyle = OUTLINE; ctx.lineWidth = 5; ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x-58,y+112); ctx.lineTo(x-58,y+22); ctx.quadraticCurveTo(x,y-22,x+58,y+22); ctx.lineTo(x+58,y+112);
+        ctx.stroke(); ctx.lineWidth = 1;
+        drawPlankSign(ctx, x, y+78, d.label);
       } else if (d.kind === "mathSign"){
         drawPlankSign(ctx, x, d.y-cam.y, d.solved ? "OK" : "R: MATHE");
         if (!d.solved){
@@ -552,17 +671,28 @@ export class World {
         ctx.fillStyle = "#ffdf8a"; ctx.fillRect(x+12,y+5,18,12);
       } else if (d.kind === "pyramid"){
         const y = d.y-cam.y;
-        ctx.fillStyle = "#d6b36a"; ctx.beginPath(); ctx.moveTo(x,y+d.h); ctx.lineTo(x+d.w/2,y); ctx.lineTo(x+d.w,y+d.h); ctx.closePath(); ctx.fill(); ctx.strokeStyle=OUTLINE; ctx.stroke();
+        ctx.fillStyle = "#d6b36a"; ctx.beginPath(); ctx.moveTo(x,y+d.h); ctx.lineTo(x+d.w/2,y); ctx.lineTo(x+d.w,y+d.h); ctx.closePath(); fillStroke(ctx, "#d6b36a", "rgba(83,62,37,.55)", 2);
+        ctx.fillStyle = "rgba(120,88,44,.18)"; ctx.beginPath(); ctx.moveTo(x+d.w/2,y); ctx.lineTo(x+d.w,y+d.h); ctx.lineTo(x+d.w*.58,y+d.h); ctx.closePath(); ctx.fill();
       } else if (d.kind === "cactus"){
         const y = d.y-cam.y; ctx.strokeStyle="#2f8a55"; ctx.lineWidth=13; ctx.lineCap="round";
         ctx.beginPath(); ctx.moveTo(x,y+88); ctx.lineTo(x,y+18); ctx.moveTo(x,y+48); ctx.lineTo(x-24,y+36); ctx.moveTo(x,y+62); ctx.lineTo(x+24,y+48); ctx.stroke(); ctx.lineWidth=1;
+      } else if (d.kind === "sandGrass" || d.kind === "ash" || d.kind === "shells"){
+        const y = d.y - cam.y;
+        for (let i=0;i<d.w;i+=46){
+          if (d.kind === "shells"){
+            ellipse(ctx, x+i+14, y-7, 7, 4, -0.2, i%3 ? "#fff0d0" : "#f3bca2", "rgba(102,78,54,.28)", 1);
+          } else if (d.kind === "ash"){
+            ctx.fillStyle = "rgba(40,35,34,.32)";
+            ctx.beginPath(); ctx.ellipse(x+i+12, y-5-(i%2)*3, 13+(i%3)*3, 4, 0, 0, Math.PI*2); ctx.fill();
+          } else {
+            ctx.strokeStyle = "rgba(160,124,54,.45)";
+            ctx.beginPath(); ctx.moveTo(x+i, y-1); ctx.lineTo(x+i+9, y-14); ctx.moveTo(x+i+16, y-1); ctx.lineTo(x+i+23, y-9); ctx.stroke();
+          }
+        }
       } else if (d.kind === "snowPine"){
         const y = d.y-cam.y; ctx.fillStyle="#315f51";
         for (let i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(x,y+130-i*38); ctx.lineTo(x+44,y+55-i*24); ctx.lineTo(x+88,y+130-i*38); ctx.closePath(); ctx.fill(); }
         ctx.fillStyle="rgba(255,255,255,.72)"; ctx.beginPath(); ctx.moveTo(x+9,y+102); ctx.lineTo(x+44,y+54); ctx.lineTo(x+79,y+102); ctx.closePath(); ctx.fill();
-      } else if (d.kind === "waterfall"){
-        const y=d.y-cam.y; ctx.fillStyle="rgba(100,190,235,.55)"; roundedRect(ctx,x,y,d.w,d.h,14,"rgba(94,185,230,.55)","rgba(210,245,255,.65)",2);
-        ctx.strokeStyle="rgba(255,255,255,.45)"; for(let i=10;i<d.w;i+=18){ctx.beginPath();ctx.moveTo(x+i,y+8);ctx.lineTo(x+i+Math.sin(worldTime*5+i)*8,y+d.h-8);ctx.stroke();}
       } else if (d.kind === "volcano"){
         const y=d.y-cam.y; ctx.fillStyle="#5a4139"; ctx.beginPath(); ctx.moveTo(x,y+d.h); ctx.lineTo(x+d.w*.45,y+30); ctx.lineTo(x+d.w*.62,y+34); ctx.lineTo(x+d.w,y+d.h); ctx.closePath(); ctx.fill();
         drawSoftLight(ctx,x+d.w*.54,y+44,70,"255,90,35",0.22);
@@ -607,7 +737,7 @@ export class World {
   drawBlock(ctx,b,cam){
     const x = b.x - cam.x, y = b.y - cam.y;
     if (x < -200 || x > CONFIG.canvas.width+200) return;
-    const colors = { dirt:"#b88a5d", mud:"#74513b", wood:"#8c6a4a", rock:"#8c94a2", treeTrunk:"#7a563a", treeLeaf:"#4ab86a", tractor:"#c73e2d", hay:"#d9b84b", fence:"#9b7148", well:"#b9c2d4", trampoline:"#52c7d8", break:"#d7ad64", moving:"#6fa9de", crate:"#b45335" };
+    const colors = { dirt:"#b88a5d", mud:"#74513b", sand:"#d9b56b", snow:"#d8edf4", basalt:"#5a4b4c", wood:"#8c6a4a", rock:"#8c94a2", treeTrunk:"#7a563a", treeLeaf:"#4ab86a", tractor:"#c73e2d", hay:"#d9b84b", fence:"#9b7148", well:"#b9c2d4", trampoline:"#52c7d8", break:"#d7ad64", moving:"#6fa9de", crate:"#b45335" };
     const fill = colors[b.kind] || "#888";
     if (!["treeLeaf","rock"].includes(b.kind)) contactShadow(ctx, x+b.w/2, y+b.h+3, b.w*0.42, 0.08);
     ctx.fillStyle = fill;
@@ -648,24 +778,48 @@ export class World {
         ctx.fillStyle = "rgba(94,65,42,.20)";
         ctx.fillRect(x,y,z.w,z.h);
       } else if (z.kind === "water"){
-        ctx.fillStyle = "rgba(82,170,220,.38)";
-        ctx.fillRect(x,y,z.w,z.h);
-        ctx.strokeStyle = "rgba(220,250,255,.48)";
-        for (let i=0;i<z.w;i+=30){ ctx.beginPath(); ctx.moveTo(x+i,y+10); ctx.quadraticCurveTo(x+i+14,y+2,x+i+28,y+10); ctx.stroke(); }
+        drawSoftLight(ctx, x+z.w/2, y+18, z.w*0.56, "110,205,240", 0.10);
+        ctx.fillStyle = "rgba(35,74,88,.32)";
+        ctx.beginPath(); ctx.ellipse(x+z.w/2, y+z.h-10, z.w*.54, z.h*.48, 0, 0, Math.PI*2); ctx.fill();
+        const wg = ctx.createLinearGradient(0, y, 0, y+z.h);
+        wg.addColorStop(0, "rgba(88,185,225,.58)");
+        wg.addColorStop(1, "rgba(38,104,152,.70)");
+        ctx.fillStyle = wg;
+        ctx.beginPath();
+        ctx.moveTo(x+10, y+16);
+        for (let i=0;i<=z.w;i+=28) ctx.quadraticCurveTo(x+i+14, y+7+Math.sin(performance.now()/380+i)*4, x+i+28, y+16);
+        ctx.lineTo(x+z.w-10, y+z.h-8); ctx.quadraticCurveTo(x+z.w/2, y+z.h+18, x+10, y+z.h-8); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = "rgba(222,248,255,.55)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x+12,y+16); for (let i=0;i<z.w-24;i+=28) ctx.quadraticCurveTo(x+i+24,y+6+Math.sin(performance.now()/380+i)*4,x+i+42,y+16); ctx.stroke(); ctx.lineWidth = 1;
+        ctx.fillStyle = "rgba(96,72,45,.28)";
+        ctx.beginPath(); ctx.ellipse(x+10,y+20,24,8,0,0,Math.PI*2); ctx.ellipse(x+z.w-10,y+20,24,8,0,0,Math.PI*2); ctx.fill();
       } else if (z.kind === "lava"){
-        ctx.fillStyle = "rgba(255,70,20,.58)";
-        ctx.fillRect(x,y,z.w,z.h);
-        ctx.fillStyle = "rgba(255,210,55,.48)";
-        for (let i=0;i<z.w;i+=34){ ctx.beginPath(); ctx.ellipse(x+i+12,y+18+Math.sin(performance.now()/180+i)*5,18,5,0,0,Math.PI*2); ctx.fill(); }
-      } else if (z.kind === "safe"){
-        const g = ctx.createLinearGradient(x, y, x, y+z.h);
+        drawSoftLight(ctx, x+z.w/2, y+16, z.w*0.72, "255,86,28", 0.22);
+        ctx.fillStyle = "rgba(24,17,17,.66)";
+        ctx.beginPath(); ctx.ellipse(x+z.w/2, y+z.h-8, z.w*.55, z.h*.48, 0, 0, Math.PI*2); ctx.fill();
+        const lg = ctx.createLinearGradient(0, y, 0, y+z.h);
+        lg.addColorStop(0, "rgba(255,118,24,.92)");
+        lg.addColorStop(0.48, "rgba(208,46,18,.92)");
+        lg.addColorStop(1, "rgba(80,18,16,.95)");
+        ctx.fillStyle = lg;
+        ctx.beginPath();
+        ctx.moveTo(x+12, y+18);
+        for (let i=0;i<=z.w;i+=26) ctx.quadraticCurveTo(x+i+12, y+8+Math.sin(performance.now()/170+i)*5, x+i+26, y+18);
+        ctx.lineTo(x+z.w-8, y+z.h-10); ctx.quadraticCurveTo(x+z.w/2, y+z.h+13, x+8, y+z.h-10); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "rgba(255,231,82,.62)";
+        for (let i=0;i<z.w;i+=36){ ctx.beginPath(); ctx.ellipse(x+i+16,y+23+Math.sin(performance.now()/190+i)*5,18,4,0,0,Math.PI*2); ctx.fill(); }
+        ctx.strokeStyle = "rgba(70,34,27,.75)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x+8,y+18); ctx.lineTo(x+z.w-8,y+18); ctx.stroke(); ctx.lineWidth = 1;
+      } else if (z.kind === "safe" || z.kind === "math"){
+        const vy = (z.visualY ?? z.y) - cam.y;
+        const vh = z.visualH ?? z.h;
+        const g = ctx.createLinearGradient(x, vy, x, vy+vh);
         g.addColorStop(0, "rgba(255,231,148,.05)");
         g.addColorStop(1, "rgba(255,231,148,.16)");
         ctx.fillStyle = g;
-        ctx.fillRect(x,y,z.w,z.h);
-        ctx.strokeStyle = "rgba(255,231,148,.22)";
+        ctx.fillRect(x,vy,z.w,vh);
+        ctx.strokeStyle = z.kind === "math" ? "rgba(170,225,255,.30)" : "rgba(255,231,148,.24)";
         ctx.setLineDash([8,8]);
-        ctx.strokeRect(x,y,z.w,z.h);
+        ctx.strokeRect(x,vy,z.w,vh);
         ctx.setLineDash([]);
       } else if (z.kind === "hide"){
         ctx.fillStyle = "rgba(62,38,25,.08)";
@@ -770,4 +924,19 @@ export class World {
 export function nightAmount(worldTime){
   const n = Math.cos((worldTime % CONFIG.dayLength) / CONFIG.dayLength * Math.PI * 2) * -0.5 + 0.5;
   return smoothstep(0, 1, n);
+}
+
+function groundPalette(biome){
+  const palettes = {
+    farm:{ top:"#65b65e", low:"#3e7e41", edge:"#3f833e", nightTop:"#3f7447", nightLow:"#253b2e", nightEdge:"#315332" },
+    forest:{ top:"#4f965c", low:"#2f6f44", edge:"#2f7b42", nightTop:"#345d45", nightLow:"#20382e", nightEdge:"#274832" },
+    desert:{ top:"#d8b661", low:"#b98a42", edge:"#c79d4c", nightTop:"#766946", nightLow:"#4d3e32", nightEdge:"#65523a" },
+    snow:{ top:"#dceef2", low:"#9ec4d5", edge:"#cfe7ef", nightTop:"#7994a9", nightLow:"#45586f", nightEdge:"#6d859a" },
+    beach:{ top:"#dfbf73", low:"#b9934d", edge:"#d6ac60", nightTop:"#76684d", nightLow:"#504536", nightEdge:"#66583f" },
+    tropics:{ top:"#55ad63", low:"#2f7f4a", edge:"#358e4b", nightTop:"#326f50", nightLow:"#1f4636", nightEdge:"#275b40" },
+    volcano:{ top:"#584748", low:"#30292d", edge:"#4d3835", nightTop:"#382d31", nightLow:"#19171d", nightEdge:"#2b2022" },
+    graveyard:{ top:"#49685c", low:"#2e473e", edge:"#34564a", nightTop:"#2c3f41", nightLow:"#1c282c", nightEdge:"#253539" },
+    swamp:{ top:"#557957", low:"#38573d", edge:"#3e6844", nightTop:"#364f42", nightLow:"#22332e", nightEdge:"#2b4437" }
+  };
+  return palettes[biome] || palettes.farm;
 }

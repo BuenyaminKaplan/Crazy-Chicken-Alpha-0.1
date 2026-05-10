@@ -1,3 +1,4 @@
+import { getBiomeState } from "./Biomes.js";
 import { clamp } from "./Utils.js";
 
 export const BED_COST = { wood:4, wool:2, feathers:3, stone:2, cloth:2 };
@@ -89,8 +90,8 @@ export class MathSystem {
 export class SurvivalSystem {
   constructor(){ this.reset(); }
   reset(){
-    this.biome = "field";
-    this.thirst = 100;
+    this.biome = "farm";
+    this.heat = 0;
     this.cold = 0;
     this.parasites = 0;
     this.lavaGrace = 0;
@@ -98,29 +99,31 @@ export class SurvivalSystem {
   }
   update(dt, game){
     this.tick += dt;
-    const safe = game.nearMerchant();
+    const safe = game.inSafeZone?.() || game.nearMerchant();
     if (safe){
-      this.thirst = Math.min(100, this.thirst + dt*12);
+      this.heat = Math.max(0, this.heat - dt*20);
       this.cold = Math.max(0, this.cold - dt*18);
       this.parasites = Math.max(0, this.parasites - dt*10);
       return;
     }
-    if (this.biome === "desert") this.thirst = Math.max(0, this.thirst - dt*2.3);
+    if (this.biome === "desert") this.heat = Math.min(100, this.heat + dt*1.9);
+    else this.heat = Math.max(0, this.heat - dt*8);
     if (this.biome === "snow") this.cold = Math.min(100, this.cold + dt*2.1);
-    if (this.biome === "jungle" || this.biome === "swamp") this.parasites = Math.min(100, this.parasites + dt*1.0);
+    else this.cold = Math.max(0, this.cold - dt*7);
+    if (this.biome === "tropics" || this.biome === "swamp") this.parasites = Math.min(100, this.parasites + dt*1.0);
+    else this.parasites = Math.max(0, this.parasites - dt*5);
     if (this.tick >= 5){
       this.tick = 0;
-      if (this.thirst <= 0 || this.cold >= 100 || this.parasites >= 100) game.applyDamage(1, this.biome);
+      if (this.cold >= 100 || this.parasites >= 100) game.applyDamage(1, this.biome);
     }
   }
   setBiomeByX(x){
-    const biomes = ["field","jungle","beach","desert","snow","darkForest","volcano","swamp"];
-    this.biome = biomes[Math.floor(Math.max(0, x) / 2400) % biomes.length];
+    this.biome = getBiomeState(x).id;
   }
   visibleStatus(){
-    if (this.biome === "desert") return `Durst ${Math.ceil(this.thirst)}%`;
+    if (this.biome === "desert") return `Sandsturm ${Math.ceil(this.heat)}%`;
     if (this.biome === "snow") return `Kaelte ${Math.ceil(this.cold)}%`;
-    if (this.biome === "jungle" || this.biome === "swamp") return `Parasiten ${Math.ceil(this.parasites)}%`;
+    if (this.biome === "tropics" || this.biome === "swamp") return `Parasiten ${Math.ceil(this.parasites)}%`;
     return "";
   }
 }
