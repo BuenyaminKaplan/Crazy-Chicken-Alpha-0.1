@@ -210,7 +210,6 @@ export class World {
   }
 
   spawnBoss(x, difficulty){
-    this.decor.push({ kind:"warning", x:x-120, y:CONFIG.groundY-180, w:240 });
     this.enemies.push(new Enemy("giantRooster", x, difficulty));
   }
 
@@ -715,13 +714,6 @@ export class World {
         ctx.fillStyle = "#111"; ctx.beginPath(); ctx.arc(x+31,y+23,2,0,Math.PI*2); ctx.arc(x+45,y+23,2,0,Math.PI*2); ctx.fill();
         ctx.fillStyle = "#8b1f2d"; ctx.beginPath(); ctx.arc(x+30,y+9,7,0,Math.PI*2); ctx.arc(x+38,y+5,8,0,Math.PI*2); ctx.arc(x+47,y+9,7,0,Math.PI*2); ctx.fill();
         ctx.fillStyle = "#fff0b8"; ctx.font = "bold 10px system-ui"; ctx.fillText("Kauf?", x+19, y-8);
-      } else if (d.kind === "warning"){
-        const y = d.y - cam.y;
-        ctx.fillStyle = "rgba(255,70,40,.20)";
-        ctx.fillRect(x, y, d.w, 44);
-        ctx.fillStyle = "#ffdf6a";
-        ctx.font = "bold 13px system-ui";
-        ctx.fillText("MINI-BOSS", x+70, y+27);
       }
     }
   }
