@@ -198,6 +198,7 @@ export class Player {
     const speed = full ? 3200 : lerp(2200, 2800, t);
     const r = full ? 20 : lerp(7, 16, t);
     const base = full ? 2.2 : lerp(0.7, 1.2, t);
+    const chargeDamageMult = lerp(1.0, 1.55, t) + (full ? 0.20 : 0);
     this.fireCooldown = full ? 0.22 : 0.055;
     this.charging = false;
     this.chargeT = 0;
@@ -208,8 +209,9 @@ export class Player {
       vy:0,
       r,
       life:1.1,
-      dmg:Math.max(1, Math.floor(base * this.damageMult())),
-      charged:full
+      dmg:Math.max(1, Math.floor(base * chargeDamageMult * this.damageMult())),
+      charged:full,
+      chargePower:t
     };
   }
 

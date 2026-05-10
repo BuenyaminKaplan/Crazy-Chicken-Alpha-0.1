@@ -200,7 +200,9 @@ export class AbilitySystem {
     const p = game.player;
     const d = p.dims();
     const lvl = Math.max(1, this.levels[id] || 1);
-    const dmg = (0.55 + lvl * 0.28) * this.damageMult() * p.damageMult();
+    const chargeT = clamp(chargedFireball?.chargeT || 0, 0, 1);
+    const chargeDamageMult = lerp(1.0, 1.45, chargeT);
+    const dmg = (0.55 + lvl * 0.28) * this.damageMult() * p.damageMult() * chargeDamageMult;
     const x = p.x + d.w/2 + p.facing * (d.w * 0.66);
     const y = p.y + d.h * 0.46;
     const cd = this.cooldownMult();
@@ -213,7 +215,7 @@ export class AbilitySystem {
       return true;
     }
 
-    const common = { x, y, vy:0, life:0.82 + lvl * 0.07, dmg, charged:false, ability:id };
+    const common = { x, y, vy:0, life:0.82 + lvl * 0.07, dmg, charged:false, ability:id, chargePower:chargeT };
     if (id === "ice"){
       game.world.fireballs.push({ ...common, vx:p.facing * (1180 + lvl * 90) * this.rangeMult(), r:11 + lvl * 1.5, slow:0.35 });
       game.spawnAbilityBurst(x, y, "ice", 0.7);
@@ -230,7 +232,7 @@ export class AbilitySystem {
       game.audio.beep(360, 0.06, "triangle", 0.07);
       this.cooldowns[id] = (1.45 - lvl * 0.12) * cd;
     }
-    if (chargedFireball) this.cooldowns[id] *= lerp(0.84, 0.62, clamp(chargedFireball.chargeT || 0, 0, 1));
+    if (chargedFireball) this.cooldowns[id] *= lerp(0.84, 0.62, chargeT);
     return true;
   }
 }
